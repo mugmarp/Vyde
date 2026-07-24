@@ -1,0 +1,135 @@
+PROJECT BRIEF — "Utube" Premium UI/UX Design Pass
+(Personal, general-purpose YouTube-alternative client — UI-first workflow)
+
+CONTEXT
+This is a personal, non-commercial project. The functional core will be
+adapted from existing open-source YouTube-alternative clients (e.g.
+NewPipe, LibreTube, and similar front-ends). This brief is scoped to
+UI/UX design ONLY — do not generate backend logic, extraction code, or
+download/conversion implementation. The goal is a premium interface layer
+to be wired into the existing open-source codebase afterward.
+
+⚠️ CORRECTION FROM EARLIER DRAFTS: this is NOT a worship, music, or
+genre-specific app. It is a general-purpose YouTube alternative covering
+all content categories (music, gaming, tech, education, entertainment,
+news, sports, vlogs, etc.), the same breadth as YouTube itself. All
+screen examples, sample content, and copy in this pass must reflect that
+general scope — no genre-specific framing anywhere.
+
+⚠️ NAMING NOTE: "Utube" is one character from "YouTube" — real trademark
+risk for a general-purpose competitor especially. Recommend 2-3 clearly
+distinct alternative names as part of the deliverable.
+
+⚠️ SCOPE NOTE ON DOWNLOADS: downloading and re-exporting YouTube content
+(especially as MP3) is against YouTube's Terms of Service and can raise
+copyright concerns depending on content/jurisdiction. This pass designs
+the UI/UX surface only (where downloads live, how they're managed, how
+export/share is presented) — not the extraction or conversion mechanism.
+
+INFRASTRUCTURE MODEL (informs, does not require code in this pass)
+- No custom backend or server — client-only app.
+- Public content (feeds, search, playback) sourced the way NewPipe-class
+  clients already do it — no first-party server required.
+- Personal account data (subscriptions, playlists, watch history, liked
+  videos) sourced via official Google Sign-In + the user's own account —
+  a separate, authenticated data path from the public-content path above.
+  UI should visually distinguish "your account" content from "public"
+  content since they come from different trust boundaries.
+
+PRODUCT SUMMARY
+A personal, general-purpose mobile client for browsing and watching YouTube
+content across all categories, with premium native-feeling playback
+controls, an optional signed-in account mode, and locally managed
+downloads — distinguished from existing open-source alternatives entirely
+by a premium, cohesive UI/UX layer.
+
+DESIGN OBJECTIVE
+Deliver a complete UI/UX system (not a feature list) that could visually
+compete with premium commercial streaming apps, while keeping the
+information architecture simple enough to map onto an existing open-source
+client's data model plus a standard Google OAuth account layer.
+
+DELIVERABLE SCOPE
+
+1. Design system
+   - Color tokens, type scale, spacing scale, corner-radius/elevation rules
+   - Motion principles (meaningful transitions, not decoration)
+
+2. Core screens
+   - Home Feed (signed-out + signed-in variants, general content mix)
+   - Search / Explore (category browsing, trending, general topics)
+   - Video Player — see Player Features below
+   - Library (Downloads tab + Playlists tab)
+   - My Account hub (subscriptions, playlists, watch history, liked videos —
+     populated only when signed in)
+   - Profile
+   - Settings (Google sign-in/out, download preferences, gesture toggle)
+   - Sign-in / consent screen
+   - Download manager screen (in-app only — see Downloads below)
+   - Empty / error / loading states for each above
+
+3. Navigation model
+   - Bottom tab bar: Home, Explore, Library, Profile
+   - Player: full-screen, mini-player/PiP, queue, orientation lock
+
+4. Player features (design the UI/interaction, not the playback engine)
+   - Standard controls: play/pause, seek bar, chapters, speed, quality,
+     captions toggle, cast icon
+   - Gesture layer, matching established video-player conventions:
+     · Vertical swipe on the right half of the screen → volume
+     · Vertical swipe on the left half of the screen → screen brightness
+     · Double-tap left/right → seek back/forward, with a visible ripple
+       + time indicator
+     · Pinch or double-tap-and-hold → toggle fit/fill aspect ratio
+   - Each gesture needs a lightweight on-screen indicator (e.g. a vertical
+     fill bar with icon) that appears during the gesture and fades after —
+     specify the exact visual treatment.
+
+5. Downloads (UI/UX only)
+   - Downloaded items are NOT written to the shared file manager or gallery
+     — stored in the app's private/sandboxed storage, visible only inside
+     the app's Library → Downloads tab.
+   - From that screen, a per-item overflow menu offers "Export" / "Share",
+     which hands the file to the OS share sheet (e.g. to export as MP3
+     audio-only, or share the file to another app) — design this menu and
+     its confirmation states, not the underlying conversion.
+   - Storage-used indicator, per-item file size, and a clear "Delete" action
+     with a confirmation step.
+
+6. Signed-out vs signed-in state
+   - Clear visual language for what changes across Home, Profile, and
+     Settings when a Google account is connected vs not.
+
+7. One signature interaction or visual moment that makes the app feel
+   authored rather than templated (e.g. the gesture-indicator design, or
+   the download-manager's storage visualization).
+
+CONSTRAINTS
+- Realistic iPhone 16 Pro frame for all mobile mockups.
+- Dark-first theme, high contrast, no default AI-cliché palettes.
+- Sample content must span general categories (not music/worship-specific)
+  and use generic/fictional placeholder titles — no real channels, artists,
+  or copyrighted branding.
+- Typography: deliberate display + body pairing, not system defaults.
+- Design must stay feasible on top of an existing open-source video client
+  plus a standard OAuth account layer — no UI concept should imply
+  features neither pipeline can support.
+
+OUTPUT FORMAT
+UI/UX design specification: token table, annotated screen mockups (or coded
+interactive mockups), and a short rationale per screen — the reasoning a
+UI/UX designer would hand off to an engineer, including exactly how each
+gesture indicator and the download-manager should behave.
+
+OPEN QUESTIONS FOR THE REQUESTER (answer before final build)
+1. Should signed-out mode be fully usable, or is sign-in required at
+   first launch?
+2. Should "Downloads" and "Playlists" be separate tabs inside Library, or
+   merged into one list with filter chips?
+3. Should the gesture layer (volume/brightness swipe) be on by default,
+   or opt-in via Settings — some users find edge-swipe gestures conflict
+   with iOS system gestures (Control Center / Notification Center)?
+
+NEXT STEP (explicitly out of scope for this pass)
+Once the UI/UX direction is approved, integrate this design layer onto the
+chosen open-source client's codebase — design first, implementation second.

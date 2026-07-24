@@ -1,0 +1,51 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+
+:root {
+  --vyde-bg: #050507;
+  --vyde-bg-elevated: #0C0C12;
+  --vyde-bg-overlay: rgba(12, 12, 18, 0.7);
+  --vyde-bg-hover: #161620;
+  
+  --vyde-accent: #E84A27; /* Cinematic orange/red */
+  --vyde-accent-hover: #FF5A36;
+  
+  --vyde-text-primary: #FFFFFF;
+  --vyde-text-secondary: #9999A6;
+  --vyde-text-muted: #666675;
+  
+  --vyde-border: #1F1F2E;
+  --vyde-border-light: #2A2A3D;
+  
+  --font-display: 'Outfit', sans-serif;
+  --font-body: 'Plus Jakarta Sans', sans-serif;
+  
+  --vyde-radius-sm: 4px;
+  --vyde-radius-md: 8px;
+  --vyde-radius-lg: 16px;
+  --vyde-radius-full: 9999px;
+  
+  --vyde-ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --vyde-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Base resets for Vyde screens */
+.vyde-app {
+  font-family: var(--font-body);
+  background-color: var(--vyde-bg);
+  color: var(--vyde-text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.vyde-display {
+  font-family: var(--font-display);
+}
+
+/* Custom Scrollbar for hiding but keeping functionality */
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
