@@ -4,9 +4,10 @@ import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { Video } from '@/data/mockData';
+import { LiveVideo } from '@/api/youtube';
 
 interface Props {
-  video: Video;
+  video: Video | LiveVideo;
   progress?: number;
 }
 
@@ -22,6 +23,10 @@ const C = {
 
 export default function VideoCard({ video, progress }: Props) {
   const router = useRouter();
+  const channelColor = 'channelColor' in video ? video.channelColor : C.accent;
+  const channelInitials = 'channelInitials' in video
+    ? video.channelInitials
+    : video.channel.slice(0, 2).toUpperCase();
 
   return (
     <TouchableOpacity
@@ -33,7 +38,9 @@ export default function VideoCard({ video, progress }: Props) {
       <View style={styles.thumbWrap}>
         <Image source={video.thumbnail} style={styles.thumb} contentFit="cover" />
         <View style={styles.durationBadge}>
-          <Text style={styles.durationText}>{video.duration}</Text>
+          <Text style={styles.durationText}>
+            {'duration' in video ? video.duration : 'YouTube'}
+          </Text>
         </View>
         {progress !== undefined && (
           <View style={styles.progressTrack}>
@@ -44,18 +51,20 @@ export default function VideoCard({ video, progress }: Props) {
 
       {/* Metadata row */}
       <View style={styles.meta}>
-        <View style={[styles.avatar, { backgroundColor: video.channelColor }]}>
-          <Text style={styles.avatarText}>{video.channelInitials}</Text>
+        <View style={[styles.avatar, { backgroundColor: channelColor }]}>
+          <Text style={styles.avatarText}>{channelInitials}</Text>
         </View>
         <View style={styles.info}>
           <Text style={styles.title} numberOfLines={2}>{video.title}</Text>
           <View style={styles.channelRow}>
             <Text style={styles.channel}>{video.channel}</Text>
-            {video.verified && (
+            {'verified' in video && video.verified && (
               <Ionicons name="checkmark-circle" size={13} color={C.dim} style={{ marginLeft: 3 }} />
             )}
           </View>
-          <Text style={styles.stats}>{video.views} views · {video.timestamp}</Text>
+          <Text style={styles.stats}>
+            {'views' in video ? `${video.views} views · ${video.timestamp}` : 'Live on YouTube'}
+          </Text>
         </View>
         <TouchableOpacity hitSlop={12} style={styles.moreBtn}>
           <Ionicons name="ellipsis-vertical" size={18} color={C.dim} />

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, Dimensions, PanResponder, Animated, Platform,
+  StyleSheet, Dimensions, PanResponder, Animated, Platform, Linking,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -11,6 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppContext } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { VIDEOS, MOCK_COMMENTS } from '@/data/mockData';
+import { fetchYouTubeVideo } from '@/api/youtube';
 
 const C = {
   bg: '#050507', elevated: '#0C0C12', hover: '#161620',
@@ -86,10 +87,13 @@ export default function PlayerScreen() {
   const { likedVideoIds, savedVideoIds, toggleLike, toggleSave } = useAppContext();
   const { isSignedIn } = useAuth();
 
-  const video = VIDEOS.find(v => v.id === id) ?? VIDEOS[0];
+  const mockVideo = VIDEOS.find(v => v.id === id);
+  const [liveVideo, setLiveVideo] = useState<Awaited<ReturnType<typeof fetchYouTubeVideo>> | null>(null);
+  const video = mockVideo ?? VIDEOS[0];
+  const isLiveVideo = !mockVideo;
   const upNext = VIDEOS.filter(v => v.id !== video.id).slice(0, 4);
 
-  const [playing, setPlaying] = useState(true);
+  const [playing, setPlaying] = useState(!isLiveVideo);
   const [progress, setProgress] = useState(0.24);
   const [brightness, setBrightness] = useState(0.7);
   const [volume, setVolume] = useState(0.8);
@@ -102,6 +106,11 @@ export default function PlayerScreen() {
   const [seekRightKey, setSeekRightKey] = useState(0);
   const isLiked = likedVideoIds.includes(video.id);
   const isSaved = savedVideoIds.includes(video.id);
+
+  useEffect(() => {
+    if (!isLiveVideo || !id) return;
+    fetchYouTubeVideo(id).then(setLiveVideo).catch(() => {});
+  }, [id, isLiveVideo]);
 
   const controlsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const playingRef = useRef(playing);
@@ -171,6 +180,11 @@ export default function PlayerScreen() {
   };
 
   const topPad = Platform.OS === 'web' ? 10 : insets.top;
+  const displayTitle = liveVideo?.title ?? video.title;
+  const displayChannel = liveVideo?.channel ?? video.channel;
+  const displayDescription = liveVideo?.description ?? video.description;
+  const displayThumbnail = liveVideo?.thumbnail ?? video.thumbnail;
+  const watchUrl = liveVideo?.watchUrl ?? `https://www.youtube.com/watch?v=${video.id}`;
 
   return (
     <View style={ps.root}>
@@ -181,7 +195,7 @@ export default function PlayerScreen() {
         {...panResponder.panHandlers}
       >
         <View style={ps.player}>
-          <Image source={video.thumbnail} style={ps.poster} contentFit="cover" />
+          <Image source={displayThumbnail} style={ps.poster} contentFit="cover" />
           <LinearGradient colors={['rgba(0,0,0,0.7)', 'transparent', 'transparent', 'rgba(0,0,0,0.85)']} style={StyleSheet.absoluteFill} />
 
           {/* Top controls */}
@@ -191,8 +205,8 @@ export default function PlayerScreen() {
                 <Ionicons name="chevron-down" size={26} color="#fff" />
               </TouchableOpacity>
               <View style={{ flex: 1, paddingHorizontal: 12 }}>
-                <Text style={ps.topTitle} numberOfLines={1}>{video.title}</Text>
-                <Text style={ps.topChannel}>{video.channel}</Text>
+                <Text style={ps.topTitle} numberOfLines={1}>{displayTitle}</Text>
+                <Text style={ps.topChannel}>{displayChannel}</Text>
               </View>
               <TouchableOpacity hitSlop={10} style={ps.iconBtn}>
                 <Ionicons name="tv-outline" size={22} color="#fff" />
@@ -206,6 +220,17 @@ export default function PlayerScreen() {
           {/* Centre play/pause */}
           {showControls && (
             <View style={ps.centreControls}>
+              {isLiveVideo ? (
+                <TouchableOpacity
+                  style={ps.watchButton}
+                  onPress={() => Linking.openURL(watchUrl)}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="logo-youtube" size={22} color="#fff" />
+                  <Text style={ps.watchButtonText}>Watch on YouTube</Text>
+                </TouchableOpacity>
+              ) : (
+                <>
               <TouchableOpacity hitSlop={20} onPress={() => { setProgress(p => Math.max(0, p - 0.12)); setSeekLeftKey(k => k + 1); }}>
                 <Ionicons name="play-back" size={34} color="rgba(255,255,255,0.9)" />
               </TouchableOpacity>
@@ -215,6 +240,8 @@ export default function PlayerScreen() {
               <TouchableOpacity hitSlop={20} onPress={() => { setProgress(p => Math.min(1, p + 0.12)); setSeekRightKey(k => k + 1); }}>
                 <Ionicons name="play-forward" size={34} color="rgba(255,255,255,0.9)" />
               </TouchableOpacity>
+                </>
+              )}
             </View>
           )}
 
@@ -246,17 +273,19 @@ export default function PlayerScreen() {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 60 }}>
         {/* Video info */}
         <View style={ps.infoBlock}>
-          <Text style={ps.videoTitle}>{video.title}</Text>
+          <Text style={ps.videoTitle}>{displayTitle}</Text>
           <View style={ps.channelRow}>
             <View style={[ps.chanAvatar, { backgroundColor: video.channelColor }]}>
               <Text style={ps.chanAvatarText}>{video.channelInitials}</Text>
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={ps.chanName}>{video.channel}</Text>
-              <Text style={ps.viewCount}>{video.views} views · {video.timestamp}</Text>
+              <Text style={ps.chanName}>{displayChannel}</Text>
+              <Text style={ps.viewCount}>
+                {liveVideo ? `${Number(liveVideo.views).toLocaleString()} views · Live on YouTube` : `${video.views} views · ${video.timestamp}`}
+              </Text>
             </View>
-            <TouchableOpacity style={ps.subBtn}>
-              <Text style={ps.subBtnText}>Subscribe</Text>
+            <TouchableOpacity style={ps.subBtn} onPress={() => isLiveVideo ? Linking.openURL(watchUrl) : undefined}>
+              <Text style={ps.subBtnText}>{isLiveVideo ? 'Open YouTube' : 'Subscribe'}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -264,7 +293,7 @@ export default function PlayerScreen() {
         {/* Action row */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={ps.actions}>
           {[
-            { icon: isLiked ? 'heart' : 'heart-outline', label: video.likes, color: isLiked ? C.accent : C.muted, onPress: () => toggleLike(video.id) },
+                { icon: isLiked ? 'heart' : 'heart-outline', label: 'likes' in video ? video.likes : 'Like', color: isLiked ? C.accent : C.muted, onPress: () => toggleLike(video.id) },
             { icon: 'share-social-outline', label: 'Share', color: C.muted, onPress: () => {} },
             { icon: isSaved ? 'bookmark' : 'bookmark-outline', label: 'Save', color: isSaved ? C.accent : C.muted, onPress: () => toggleSave(video.id) },
             { icon: 'cloud-download-outline', label: 'Download', color: C.muted, onPress: () => {} },
@@ -281,7 +310,7 @@ export default function PlayerScreen() {
 
         {/* Description */}
         <View style={ps.descBlock}>
-          <Text style={ps.descText} numberOfLines={3}>{video.description}</Text>
+          <Text style={ps.descText} numberOfLines={3}>{displayDescription}</Text>
         </View>
 
         {/* Comments */}
@@ -357,6 +386,12 @@ const ps = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
     borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.3)',
   },
+  watchButton: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: '#FF0033', borderRadius: 24,
+    paddingHorizontal: 18, paddingVertical: 12,
+  },
+  watchButtonText: { color: '#fff', fontSize: 14, fontFamily: 'Outfit_700Bold' },
   seekArea: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 0 },
   seekTrack: { height: 4, backgroundColor: 'rgba(255,255,255,0.25)', position: 'relative' },
   seekFill: { height: 4, backgroundColor: C.accent, position: 'absolute', left: 0, top: 0 },

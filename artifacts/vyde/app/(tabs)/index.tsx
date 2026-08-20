@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, FlatList, ScrollView,
-  TouchableOpacity, StyleSheet, Platform, StatusBar,
+  TouchableOpacity, StyleSheet, Platform, StatusBar, ActivityIndicator,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -10,6 +10,7 @@ import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import VideoCard from '@/components/VideoCard';
 import { VIDEOS, CATEGORIES, CONTINUE_WATCHING, CHANNELS } from '@/data/mockData';
+import { LiveVideo, fetchLiveFeed } from '@/api/youtube';
 
 const C = {
   bg: '#050507', elevated: '#0C0C12', hover: '#161620',
@@ -77,13 +78,30 @@ export default function HomeScreen() {
   const router = useRouter();
   const [selectedCat, setSelectedCat] = useState('All');
   const [bannerDismissed, setBannerDismissed] = useState(false);
+  const [liveVideos, setLiveVideos] = useState<LiveVideo[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadFeed = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await fetchLiveFeed();
+      setLiveVideos(result.items);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not load YouTube.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  React.useEffect(() => {
+    loadFeed();
+  }, []);
 
   const cats = CATEGORIES.filter(c => isSignedIn || c !== 'For You');
 
-  const filteredVideos =
-    selectedCat === 'All' || selectedCat === 'For You'
-      ? VIDEOS
-      : VIDEOS.filter(v => v.category === selectedCat);
+  const filteredVideos = liveVideos;
 
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
 
@@ -138,6 +156,29 @@ export default function HomeScreen() {
           </TouchableOpacity>
         ))}
       </ScrollView>
+      {loading && (
+        <View style={s.state}>
+          <ActivityIndicator color={C.accent} />
+          <Text style={s.stateText}>Loading from YouTube…</Text>
+        </View>
+      )}
+      {!loading && error && (
+        <View style={s.state}>
+          <Ionicons name="cloud-offline-outline" size={32} color={C.dim} />
+          <Text style={s.stateTitle}>YouTube couldn’t be reached</Text>
+          <Text style={s.stateText}>{error}</Text>
+          <TouchableOpacity style={s.retryBtn} onPress={loadFeed}>
+            <Text style={s.retryText}>Try again</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+      {!loading && !error && liveVideos.length === 0 && (
+        <View style={s.state}>
+          <Ionicons name="videocam-off-outline" size={32} color={C.dim} />
+          <Text style={s.stateTitle}>No videos found</Text>
+          <Text style={s.stateText}>Try exploring YouTube from the search tab.</Text>
+        </View>
+      )}
     </View>
   );
 
@@ -164,7 +205,7 @@ export default function HomeScreen() {
       </View>
 
       <FlatList
-        data={filteredVideos}
+        data={loading || error ? [] : filteredVideos}
         keyExtractor={v => v.id}
         renderItem={({ item }) => <VideoCard video={item} />}
         ListHeaderComponent={ListHeader}
@@ -208,4 +249,9 @@ const s = StyleSheet.create({
   chipActive: { backgroundColor: C.accent, borderColor: C.accent },
   chipText: { color: C.muted, fontSize: 13, fontFamily: 'Outfit_500Medium' },
   chipTextActive: { color: '#fff' },
+  state: { alignItems: 'center', paddingHorizontal: 28, paddingTop: 34, gap: 8 },
+  stateTitle: { color: C.text, fontSize: 16, fontFamily: 'Outfit_700Bold', textAlign: 'center' },
+  stateText: { color: C.muted, fontSize: 13, textAlign: 'center', lineHeight: 19 },
+  retryBtn: { backgroundColor: C.accent, borderRadius: 20, paddingHorizontal: 18, paddingVertical: 9, marginTop: 4 },
+  retryText: { color: '#fff', fontSize: 13, fontFamily: 'Outfit_700Bold' },
 });

@@ -9,7 +9,7 @@ export interface Video {
   views: string;
   duration: string;
   timestamp: string;
-  thumbnail: number;
+  thumbnail: number | string;
   category: string;
   description: string;
   likes: string;
@@ -29,7 +29,7 @@ export interface DownloadItem {
   title: string;
   channel: string;
   duration: string;
-  thumbnail: number;
+  thumbnail: number | string;
   status: 'active' | 'queued' | 'completed';
   progress: number;
   sizeMB: number;

@@ -1,14 +1,16 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View, Text, TextInput, ScrollView, TouchableOpacity,
   FlatList, StyleSheet, Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { TRENDING_SEARCHES, EXPLORE_CATEGORIES, VIDEOS } from '@/data/mockData';
+import { TRENDING_SEARCHES, EXPLORE_CATEGORIES } from '@/data/mockData';
 import VideoCard from '@/components/VideoCard';
+import { LiveVideo, searchYouTube } from '@/api/youtube';
 
 const C = {
   bg: '#050507', elevated: '#0C0C12', hover: '#161620',
@@ -32,14 +34,31 @@ export default function ExploreScreen() {
   const router = useRouter();
   const [query, setQuery] = useState('');
   const [focused, setFocused] = useState(false);
+  const [results, setResults] = useState<LiveVideo[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
 
-  const searchResults = query.length > 1
-    ? VIDEOS.filter(v =>
-        v.title.toLowerCase().includes(query.toLowerCase()) ||
-        v.channel.toLowerCase().includes(query.toLowerCase())
-      )
-    : [];
+  useEffect(() => {
+    if (query.trim().length < 2) {
+      setResults([]);
+      setError(null);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const response = await searchYouTube(query.trim());
+        setResults(response.items);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Could not search YouTube.');
+      } finally {
+        setLoading(false);
+      }
+    }, 450);
+    return () => clearTimeout(timer);
+  }, [query]);
 
   return (
     <View style={[s.root]}>
@@ -71,15 +90,20 @@ export default function ExploreScreen() {
       {/* Search results */}
       {query.length > 1 ? (
         <FlatList
-          data={searchResults}
+          data={results}
           keyExtractor={v => v.id}
           renderItem={({ item }) => <VideoCard video={item} />}
-          ListEmptyComponent={
+          ListHeaderComponent={loading ? (
+            <View style={s.searchState}><ActivityIndicator color={C.accent} /><Text style={s.emptyText}>Searching YouTube…</Text></View>
+          ) : error ? (
+            <View style={s.searchState}><Ionicons name="cloud-offline-outline" size={32} color={C.dim} /><Text style={s.emptyText}>{error}</Text></View>
+          ) : null}
+          ListEmptyComponent={!loading && !error ? (
             <View style={s.emptyWrap}>
               <Ionicons name="search-outline" size={40} color={C.dim} />
               <Text style={s.emptyText}>No results for "{query}"</Text>
             </View>
-          }
+          ) : null}
           contentContainerStyle={{ paddingTop: 12, paddingBottom: 100 }}
           showsVerticalScrollIndicator={false}
         />
@@ -110,7 +134,7 @@ export default function ExploreScreen() {
             <Text style={s.sectionLabel}>Browse Categories</Text>
             <View style={s.grid}>
               {EXPLORE_CATEGORIES.map(cat => (
-                <TouchableOpacity key={cat.id} style={s.catCard} activeOpacity={0.82}>
+                <TouchableOpacity key={cat.id} style={s.catCard} activeOpacity={0.82} onPress={() => setQuery(cat.label)}>
                   <Image source={CATEGORY_THUMBNAILS[cat.id]} style={s.catImage} contentFit="cover" />
                   <View style={[s.catOverlay, { backgroundColor: cat.color + 'CC' }]} />
                   <View style={s.catContent}>
@@ -172,4 +196,5 @@ const s = StyleSheet.create({
   catLabel: { color: '#fff', fontSize: 14, fontFamily: 'Outfit_700Bold' },
   emptyWrap: { flex: 1, alignItems: 'center', paddingTop: 80, gap: 12 },
   emptyText: { color: C.muted, fontSize: 16, fontFamily: 'Outfit_400Regular' },
+  searchState: { alignItems: 'center', paddingTop: 28, gap: 10 },
 });
