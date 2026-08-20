@@ -195,7 +195,7 @@ export default function PlayerScreen() {
                 <Text style={ps.topChannel}>{video.channel}</Text>
               </View>
               <TouchableOpacity hitSlop={10} style={ps.iconBtn}>
-                <Ionicons name="cast-outline" size={22} color="#fff" />
+                <Ionicons name="tv-outline" size={22} color="#fff" />
               </TouchableOpacity>
               <TouchableOpacity hitSlop={10} style={ps.iconBtn}>
                 <Ionicons name="settings-outline" size={22} color="#fff" />

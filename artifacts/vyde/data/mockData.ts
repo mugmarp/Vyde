@@ -9,7 +9,7 @@ export interface Video {
   views: string;
   duration: string;
   timestamp: string;
-  thumbnail: ReturnType<typeof require>;
+  thumbnail: number;
   category: string;
   description: string;
   likes: string;
@@ -29,7 +29,7 @@ export interface DownloadItem {
   title: string;
   channel: string;
   duration: string;
-  thumbnail: ReturnType<typeof require>;
+  thumbnail: number;
   status: 'active' | 'queued' | 'completed';
   progress: number;
   sizeMB: number;
@@ -214,7 +214,7 @@ export const MOCK_PLAYLISTS: Playlist[] = [
 ];
 
 export const MOCK_COMMENTS = [
-  { id: 'c1', user: 'StellarMind', initials: 'SM', color: '#3A7BD5', text: 'This is one of the best science documentaries I've ever watched. The CGI work is absolutely stunning.', likes: 2341, time: '2h ago' },
+  { id: 'c1', user: 'StellarMind', initials: 'SM', color: '#3A7BD5', text: "This is one of the best science documentaries I've ever watched. The CGI work is absolutely stunning.", likes: 2341, time: '2h ago' },
   { id: 'c2', user: 'NovaExplorer', initials: 'NE', color: '#52B788', text: 'The part about the Hubble Deep Field really got me. Puts everything into perspective.', likes: 1208, time: '4h ago' },
   { id: 'c3', user: 'CosmicDrifter', initials: 'CD', color: '#9B5DE5', text: 'Watched this at 3am with headphones. Life-changing experience.', likes: 876, time: '6h ago' },
   { id: 'c4', user: 'LightYearLena', initials: 'LL', color: '#F4A261', text: 'Can we get a sequel covering dark matter and dark energy? Pretty please 🙏', likes: 654, time: '8h ago' },

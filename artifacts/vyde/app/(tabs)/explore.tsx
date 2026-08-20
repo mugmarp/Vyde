@@ -16,7 +16,7 @@ const C = {
   accent: '#E84A27', border: '#1F1F2E', borderLight: '#2A2A3D',
 };
 
-const CATEGORY_THUMBNAILS: Record<string, ReturnType<typeof require>> = {
+const CATEGORY_THUMBNAILS: Record<string, number> = {
   gaming:  require('../../assets/images/thumb-gaming.jpg'),
   science: require('../../assets/images/thumb-space.jpg'),
   tech:    require('../../assets/images/thumb-tech.jpg'),

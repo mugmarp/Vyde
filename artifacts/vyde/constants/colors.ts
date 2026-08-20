@@ -17,6 +17,7 @@ const dark = {
 
   // Brand
   primary: '#E84A27',
+  primaryForeground: '#FFFFFF',
   primaryHover: '#FF5A36',
 
   // Borders
