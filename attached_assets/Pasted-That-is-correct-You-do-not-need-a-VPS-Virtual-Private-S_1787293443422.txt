@@ -1,0 +1,38 @@
+That is correct. **You do not need a VPS (Virtual Private Server)** for this hybrid approach.
+
+In fact, avoiding a VPS is one of the biggest advantages of this method compared to using Piped or Invidious. Here is why:
+
+### 1. Client-Side Execution
+In the Hybrid/Innertube approach, all the "heavy lifting" happens on the user's device (your ThinkPad or Android phone):
+*   **The Request:** Your app directly contacts `www.youtube.com`.
+*   **The Parsing:** Your app processes the JSON response locally.
+*   **The Streaming:** The video data flows directly from Google's CDN to your device.
+
+There is no middleman server to host, maintain, or pay for.
+
+### 2. Comparison of Infrastructure Needs
+
+| Approach | Server Needed? | Who pays for bandwidth? | Maintenance Level |
+| :--- | :--- | :--- | :--- |
+| **Piped/Invidious** | **Yes** (VPS required) | You (the server owner) | High (Updates, IP bans) |
+| **Official API Only** | No | Google | Low |
+| **Hybrid (Your Project)** | **No** | Google | Medium (Code updates) |
+
+### 3. Why a VPS might actually be *worse* for this specific task
+If you were to route these direct HTTP requests through a VPS:
+*   **IP Blocking:** YouTube is very aggressive about blocking datacenter IPs (like Azure, AWS, or DigitalOcean). If your VPS IP gets flagged, *every* user connecting through it gets blocked.
+*   **Latency:** Routing traffic through a server adds unnecessary delay to video loading.
+*   **Cost:** You would have to pay monthly for a server that isn't strictly necessary for the core functionality.
+
+### 4. When would you need a VPS?
+You would only need a VPS if:
+*   You wanted to host your own **Piped instance** to share with others.
+*   You wanted to build a "backend" that caches popular search results to save even more local resources.
+*   You were building a web-based version where the browser can't easily handle the complex OAuth/Internal API logic securely.
+
+### Summary for Your Documentation
+Since you are documenting this for your project, you can state:
+
+> **"The application is designed as a standalone client-side solution, eliminating the need for external backend infrastructure or VPS hosting. By leveraging direct device-to-server communication with YouTube's internal endpoints, the system reduces latency and operational costs while maintaining high scalability."**
+
+Does this align with your goal of keeping the project self-contained on your local development environment?
