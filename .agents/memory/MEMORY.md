@@ -1,0 +1,1 @@
+- [YouTube integration boundaries](youtube-integration-boundaries.md) — official APIs support metadata and permitted account operations, not third-party stream extraction or permanent offline media.

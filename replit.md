@@ -1,45 +1,66 @@
-# [Project name]
+# Vyde
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+Vyde is a dark-first Expo mobile client for discovering and watching YouTube content through official YouTube-supported APIs and links.
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
-- `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- `pnpm --filter @workspace/api-server run dev` — run the Express API server
+- `pnpm --filter @workspace/vyde run dev` — run the Expo mobile app
+- `pnpm --filter @workspace/api-server run typecheck` — typecheck the API
+- `pnpm --filter @workspace/vyde run typecheck` — typecheck the mobile app
+- `pnpm run typecheck` — full workspace typecheck where configured
+- Required mobile env: `EXPO_PUBLIC_DOMAIN` — the Replit domain used to reach the API server
+- The YouTube connection is managed by Replit; do not add API keys to source code or chat.
 
 ## Stack
 
-- pnpm workspaces, Node.js 24, TypeScript 5.9
-- API: Express 5
-- DB: PostgreSQL + Drizzle ORM
-- Validation: Zod (`zod/v4`), `drizzle-zod`
-- API codegen: Orval (from OpenAPI spec)
-- Build: esbuild (CJS bundle)
+- pnpm workspaces, Node.js 24, TypeScript
+- Mobile: Expo, React Native, Expo Router, React Query provider, AsyncStorage
+- API: Express + TypeScript, built with esbuild
+- External data: Replit YouTube connector proxying YouTube Data API v3
+- No database is currently required by Vyde.
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/vyde/app/` — Expo Router screens and navigation
+- `artifacts/vyde/components/` — shared mobile UI components
+- `artifacts/vyde/context/` — local auth, likes, saves, playlists, and download state
+- `artifacts/vyde/api/youtube.ts` — mobile client for the YouTube API proxy
+- `artifacts/vyde/constants/colors.ts` — Vyde visual tokens
+- `artifacts/api-server/src/routes/youtube.ts` — server-side YouTube connector routes
+- `artifacts/api-server/src/routes/index.ts` — API route registration
+- `artifacts/mockup-sandbox/` — original visual design/mockup artifact
+- `docs/VYDE_ARCHITECTURE.md` — full product description, architecture, data flows, and limitations
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- YouTube requests go through the Express server rather than directly from the mobile client, keeping connector access server-side.
+- Vyde uses official YouTube metadata APIs and official YouTube watch links; it does not extract streams or bypass YouTube playback controls.
+- Local-only preferences and UI state use AsyncStorage until a real per-user account architecture is implemented.
+- The home feed uses YouTube `mostPopular`; search uses YouTube search and must surface quota/API failures to the user.
+- The current YouTube connection authorizes the Replit environment, not automatically every end-user of a future published multi-user app.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+- Dark-first Home feed for popular YouTube videos
+- Search and Explore discovery
+- Video detail/player surface with official YouTube handoff for live results
+- Library, saved items, playlists, profile, settings, and download-manager UI
+- Local persistence for prototype preferences and library state
+- Planned authenticated YouTube features where the official API and scopes permit them
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+None recorded.
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- YouTube Data API quota errors are expected operational failures; preserve the visible retry/error state rather than silently substituting mock feed data.
+- The official YouTube Data API does not expose third-party downloadable media files or stream URLs. The download UI is not a production offline YouTube downloader.
+- The current sign-in and some library/comment content are prototype/local state, not proof of per-user YouTube synchronization.
+- Restart the API workflow after changing server routes or server dependencies. Expo normally hot reloads source changes.
 
 ## Pointers
 
+- Full architecture: `docs/VYDE_ARCHITECTURE.md`
 - See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details
