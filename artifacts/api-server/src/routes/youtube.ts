@@ -42,7 +42,8 @@ async function youtube(path: string) {
   const body = await response.json() as unknown;
   if (!response.ok) {
     const error = body as { error?: { message?: string } };
-    throw new Error(error.error?.message ?? "YouTube request failed");
+    const message = error.error?.message?.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+    throw new Error(message ?? "YouTube request failed");
   }
   return body as Record<string, unknown>;
 }

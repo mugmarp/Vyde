@@ -19,9 +19,9 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | null>(null);
 
 const MOCK_USER: User = {
-  name: 'Alex Rivera',
-  email: 'alex.rivera@gmail.com',
-  initials: 'AR',
+  name: 'Vyde local profile',
+  email: 'Stored on this device',
+  initials: 'VY',
   avatarColor: '#E84A27',
 };
 

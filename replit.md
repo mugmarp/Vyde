@@ -37,7 +37,7 @@ Vyde is a dark-first Expo mobile client for discovering and watching YouTube con
 - YouTube requests go through the Express server rather than directly from the mobile client, keeping connector access server-side.
 - Vyde uses official YouTube metadata APIs and official YouTube watch links; it does not extract streams or bypass YouTube playback controls.
 - Local-only preferences and UI state use AsyncStorage until a real per-user account architecture is implemented.
-- The home feed uses YouTube `mostPopular`; search uses YouTube search and must surface quota/API failures to the user.
+- Native mobile discovery uses anonymous Innertube; the web preview uses the API proxy because YouTube blocks browser CORS. All provider failures must remain visible to the user.
 - The current YouTube connection authorizes the Replit environment, not automatically every end-user of a future published multi-user app.
 
 ## Product

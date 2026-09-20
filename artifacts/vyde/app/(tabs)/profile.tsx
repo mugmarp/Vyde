@@ -18,12 +18,6 @@ const C = {
   accent: '#E84A27', border: '#1F1F2E', borderLight: '#2A2A3D',
 };
 
-const STATS = [
-  { label: 'Subscribed', value: '6' },
-  { label: 'Watched', value: '847' },
-  { label: 'Hours', value: '312' },
-];
-
 function StatPill({ label, value }: { label: string; value: string }) {
   return (
     <View style={st.pill}>
@@ -39,19 +33,23 @@ const st = StyleSheet.create({
   lbl: { color: C.dim, fontSize: 11, marginTop: 2 },
 });
 
-const QUICK_LINKS = [
-  { icon: 'time-outline',          label: 'Watch history',   count: '847' },
-  { icon: 'heart-outline',         label: 'Liked videos',    count: '34' },
-  { icon: 'list-outline',          label: 'Playlists',       count: '3' },
-  { icon: 'cloud-download-outline',label: 'Downloads',       count: '4' },
-];
-
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const { isSignedIn, user, signOut } = useAuth();
-  const { likedVideoIds } = useAppContext();
+  const { likedVideoIds, history, playlists, downloads } = useAppContext();
   const router = useRouter();
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
+  const stats = [
+    { label: 'Subscribed', value: '—' },
+    { label: 'Watched', value: history.length.toString() },
+    { label: 'Saved', value: likedVideoIds.length.toString() },
+  ];
+  const quickLinks = [
+    { icon: 'time-outline', label: 'Watch history', count: history.length.toString() },
+    { icon: 'heart-outline', label: 'Liked videos', count: likedVideoIds.length.toString() },
+    { icon: 'list-outline', label: 'Local playlists', count: playlists.length.toString() },
+    { icon: 'cloud-download-outline', label: 'Downloads', count: downloads.length.toString() },
+  ];
 
   // ── Signed out ──────────────────────────────────────────────────────────
   if (!isSignedIn) {
@@ -68,9 +66,9 @@ export default function ProfileScreen() {
         <View style={s.featureBullets}>
           {[
             ['sparkles-outline', 'Personalised recommendations'],
-            ['bookmark-outline', 'Sync your Watch Later list'],
-            ['cloud-download-outline', 'Download for offline viewing'],
-            ['notifications-outline', 'Get alerts from your channels'],
+            ['bookmark-outline', 'Keep playlists on this device'],
+            ['cloud-download-outline', 'Track local download metadata'],
+            ['notifications-outline', 'YouTube account sync (coming soon)'],
           ].map(([icon, text]) => (
             <View key={text} style={s.bullet}>
               <Ionicons name={icon as any} size={18} color={C.accent} />
@@ -81,7 +79,7 @@ export default function ProfileScreen() {
 
         <TouchableOpacity style={s.googleBtn} onPress={() => router.push('/sign-in')} activeOpacity={0.88}>
           <Ionicons name="logo-google" size={20} color="#fff" />
-          <Text style={s.googleBtnText}>Continue with Google</Text>
+          <Text style={s.googleBtnText}>Continue in local mode</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={s.skipBtn}>
@@ -111,7 +109,7 @@ export default function ProfileScreen() {
 
         {/* Stats */}
         <View style={s.statsRow}>
-          {STATS.map(stat => <StatPill key={stat.label} {...stat} />)}
+          {stats.map(stat => <StatPill key={stat.label} {...stat} />)}
         </View>
       </LinearGradient>
 
@@ -119,7 +117,7 @@ export default function ProfileScreen() {
       <View style={s.section}>
         <Text style={s.sectionLabel}>Your Content</Text>
         <View style={{ gap: 2 }}>
-          {QUICK_LINKS.map(link => (
+          {quickLinks.map(link => (
             <TouchableOpacity key={link.label} style={s.linkRow} activeOpacity={0.7}>
               <View style={s.linkIcon}>
                 <Ionicons name={link.icon as any} size={20} color={C.accent} />

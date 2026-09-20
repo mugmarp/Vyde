@@ -17,10 +17,10 @@ const C = {
 };
 
 const FEATURES = [
-  { icon: 'sparkles-outline',          label: 'Personalised video recommendations' },
-  { icon: 'bookmark-outline',          label: 'Sync your playlists across devices' },
-  { icon: 'cloud-download-outline',    label: 'Download videos for offline viewing' },
-  { icon: 'notifications-outline',     label: 'Alerts from your subscriptions' },
+  { icon: 'sparkles-outline',          label: 'Personalised local discovery' },
+  { icon: 'bookmark-outline',          label: 'Keep playlists on this device' },
+  { icon: 'cloud-download-outline',    label: 'Save local download metadata' },
+  { icon: 'notifications-outline',     label: 'Official account sync coming soon' },
   { icon: 'hand-left-outline',         label: 'Gesture controls for brightness & volume' },
 ];
 
@@ -33,7 +33,7 @@ export default function SignInScreen() {
   const handleSignIn = async () => {
     if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setLoading(true);
-    await new Promise(r => setTimeout(r, 1200)); // simulate OAuth flow
+    await new Promise(r => setTimeout(r, 350));
     await signIn();
     setLoading(false);
     router.back();
@@ -58,7 +58,7 @@ export default function SignInScreen() {
           <Text style={s.logoV}>V</Text>
         </LinearGradient>
         <Text style={s.logoText}>vyde</Text>
-        <Text style={s.tagline}>Stream without limits</Text>
+        <Text style={s.tagline}>Your local YouTube companion</Text>
       </View>
 
       {/* Feature list */}
@@ -86,7 +86,7 @@ export default function SignInScreen() {
           ) : (
             <>
               <Ionicons name="logo-google" size={20} color="#fff" />
-              <Text style={s.googleBtnText}>Continue with Google</Text>
+              <Text style={s.googleBtnText}>Continue in local mode</Text>
             </>
           )}
         </TouchableOpacity>
@@ -96,9 +96,7 @@ export default function SignInScreen() {
         </TouchableOpacity>
 
         <Text style={s.consent}>
-          By signing in, you agree to Vyde's{' '}
-          <Text style={s.consentLink}>Terms of Service</Text> and{' '}
-          <Text style={s.consentLink}>Privacy Policy</Text>.
+          Local mode stores Vyde data on this device. Official Google/YouTube account sync will be added separately.
         </Text>
       </View>
     </LinearGradient>

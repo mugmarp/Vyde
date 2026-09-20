@@ -84,7 +84,7 @@ export default function PlayerScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { likedVideoIds, savedVideoIds, toggleLike, toggleSave } = useAppContext();
+  const { likedVideoIds, savedVideoIds, toggleLike, toggleSave, recordHistory } = useAppContext();
   const { isSignedIn } = useAuth();
 
   const mockVideo = VIDEOS.find(v => v.id === id);
@@ -111,6 +111,14 @@ export default function PlayerScreen() {
     if (!isLiveVideo || !id) return;
     fetchYouTubeVideo(id).then(setLiveVideo).catch(() => {});
   }, [id, isLiveVideo]);
+
+  useEffect(() => {
+    recordHistory(video.id, {
+      title: liveVideo?.title ?? video.title,
+      channel: liveVideo?.channel ?? video.channel,
+      thumbnail: liveVideo?.thumbnail ?? video.thumbnail,
+    }, isLiveVideo ? 0 : progress);
+  }, [video.id, liveVideo?.title]);
 
   const controlsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const playingRef = useRef(playing);

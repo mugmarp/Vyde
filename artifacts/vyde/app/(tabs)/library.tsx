@@ -8,7 +8,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAppContext } from '@/context/AppContext';
-import { MOCK_PLAYLISTS } from '@/data/mockData';
 
 const C = {
   bg: '#050507', elevated: '#0C0C12', hover: '#161620',
@@ -193,7 +192,7 @@ export default function LibraryScreen() {
           </>
         ) : (
           <View style={{ paddingHorizontal: 14, paddingTop: 16 }}>
-            {MOCK_PLAYLISTS.map(pl => (
+            {playlists.map(pl => (
               <TouchableOpacity key={pl.id} style={s.plRow} activeOpacity={0.8}>
                 <View style={s.plIcon}>
                   <Ionicons name={pl.isPrivate ? 'lock-closed' : 'list'} size={20} color={C.accent} />
@@ -205,6 +204,13 @@ export default function LibraryScreen() {
                 <Ionicons name="chevron-forward" size={18} color={C.dim} />
               </TouchableOpacity>
             ))}
+            {playlists.length === 0 && (
+              <View style={s.empty}>
+                <Ionicons name="list-outline" size={44} color={C.dim} />
+                <Text style={s.emptyTitle}>No local playlists yet</Text>
+                <Text style={s.emptyBody}>Create a Vyde playlist to organize videos on this device.</Text>
+              </View>
+            )}
             <TouchableOpacity style={s.newPlaylist}>
               <Ionicons name="add" size={18} color={C.accent} />
               <Text style={s.newPlaylistText}>New playlist</Text>

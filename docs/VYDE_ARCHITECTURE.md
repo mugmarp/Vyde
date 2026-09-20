@@ -79,7 +79,7 @@ Current routes:
 
 | Route | Purpose |
 | --- | --- |
-| `GET /api/youtube/feed` | Fetches YouTube `mostPopular` video metadata |
+| `GET /api/youtube/feed` | Fetches normalized YouTube discovery metadata |
 | `GET /api/youtube/search?q=...` | Searches YouTube videos |
 | `GET /api/youtube/videos/:id` | Fetches video details, statistics, duration, and watch URL |
 
@@ -90,18 +90,18 @@ The server normalizes YouTube responses into app-friendly objects containing fie
 ### Home feed
 
 1. Home mounts and calls `fetchLiveFeed()`.
-2. The mobile client requests `/api/youtube/feed`.
-3. The API server calls YouTube through the Replit connector.
-4. The server maps the response into `LiveVideo` objects.
+2. Native Android/iOS builds call anonymous Innertube directly with a stable discovery query.
+3. The web preview uses `/api/youtube/feed` because browser CORS blocks direct Innertube requests.
+4. Results are normalized into `LiveVideo` objects.
 5. Home renders loading, live results, empty, or retry/error states.
 
 ### Search
 
 1. The user enters at least two characters.
 2. Search waits briefly after typing to avoid issuing a request for every keystroke.
-3. The client calls `/api/youtube/search?q=...`.
+3. Native Android/iOS builds call anonymous Innertube directly; the web preview uses `/api/youtube/search`.
 4. Results are mapped into shared `VideoCard` data.
-5. Quota and connector failures are shown as an explicit error state.
+5. Throttling, quota, CORS, and connector failures are shown as explicit error states.
 
 ### Video viewing
 
