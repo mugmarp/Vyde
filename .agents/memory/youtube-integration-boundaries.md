@@ -14,3 +14,9 @@ Vyde's agreed hybrid boundary is: anonymous Innertube for native discovery and m
 **Why:** Anonymous discovery and user-account synchronization have different authentication, quota, and stability properties; coupling them makes provider failures and policy boundaries harder to control.
 
 **How to apply:** Keep provider adapters separate. Do not pass OAuth tokens into anonymous Innertube requests, and do not present local Vyde state as synchronized YouTube account data.
+
+Native playback is intentionally opportunistic: accept only already-directly-playable HLS or progressive MP4-with-audio sources, reject ciphered formats, and fall back to the official YouTube watch destination when the player response or native player cannot play.
+
+**Why:** Anonymous Innertube player responses can be unplayable or require signature/PoToken handling that Vyde does not implement or want to maintain.
+
+**How to apply:** Keep background playback, now-playing controls, media caching, and offline media disabled until device validation and a separate policy decision are complete.

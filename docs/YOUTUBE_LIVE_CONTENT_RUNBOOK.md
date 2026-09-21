@@ -2,6 +2,18 @@
 
 This is the execution guide for restoring live YouTube data and completing the migration from prototype content to production-safe behavior.
 
+## Native playback boundary
+
+Vyde has a narrow native playback provider for Android and iOS behind the anonymous Innertube adapter:
+
+- It runs only on native builds; the browser preview continues to use the API proxy and the official YouTube watch handoff.
+- It accepts an HTTPS HLS manifest or a directly playable progressive MP4 format that YouTube has already returned.
+- Progressive selection requires an MP4 video format with an audio codec and prefers the best broadly supported format up to 1080p.
+- `signatureCipher` and `cipher` formats are rejected. Vyde does not decipher signatures, generate PoTokens, scrape player JavaScript, or combine separate adaptive audio/video streams.
+- The selected source exists only in the native player process. It is not shown in UI, logged, persisted, sent to account routes, or treated as a download.
+- If the player response is `UNPLAYABLE`, has no accepted format, or the native player reports an error, the UI falls back to the official YouTube watch URL.
+- Background playback, now-playing controls, caching, and offline media are disabled until a separate policy and device-validation decision.
+
 ## Important distinction
 
 There are three different failure modes:
@@ -99,7 +111,7 @@ Give the next agent this prompt:
 >
 > 1. Keep Home on `fetchLiveFeed()` and preserve loading, empty, retry, and error states.
 > 2. Keep Explore on `searchYouTube()` with debounced search and visible quota/error states.
-> 3. Keep live video details on `fetchYouTubeVideo()` and use the official YouTube watch URL. Do not create stream extraction, scraping, or fake playback for live IDs.
+ > 3. Keep live video details on `fetchYouTubeVideo()`. On native builds, the bounded playback adapter may use an already-directly-playable Innertube format; otherwise use the official YouTube watch URL. Do not add signature extraction, scraping, or fake playback for live IDs.
 > 4. Add normalized server routes for comments, playlists, liked videos, subscriptions, and channel details only where the YouTube API and granted scopes support them.
 > 5. Replace prototype-only profile, playlist, comments, continuation, and download behavior with either real API data or clearly labeled empty/unavailable states. Do not silently present seeded mock data as the user’s YouTube account.
 > 6. Replace simulated sign-in with a properly designed per-user Google/YouTube OAuth flow before claiming account synchronization. The environment-level Replit connector is not automatically a multi-user auth system.
@@ -123,8 +135,11 @@ Give the next agent this prompt:
 
 - [ ] `/api/youtube/videos/:id` validates the ID.
 - [ ] Player loads live metadata.
-- [ ] The primary live action opens the official YouTube watch URL.
-- [ ] No extracted stream URL is stored, displayed, or claimed.
+- [ ] Native player accepts only validated HLS or progressive MP4-with-audio sources.
+- [ ] Ciphered formats are rejected without attempting signature deciphering.
+- [ ] Native playback errors and unavailable formats fall back to the official YouTube watch URL.
+- [ ] The browser preview continues to use the official YouTube watch URL.
+- [ ] No media URL is stored, displayed, logged, or claimed as a download.
 
 ### Account features
 
@@ -138,6 +153,7 @@ Give the next agent this prompt:
 - [ ] No claim of permanent offline YouTube media is shown.
 - [ ] Download UI is either removed, disabled, or limited to officially permitted/app-owned content.
 - [ ] Local metadata caching is distinguished from media downloading.
+- [ ] Native playback does not enable background playback, now-playing controls, or media caching.
 
 ### Verification
 
@@ -156,15 +172,16 @@ Finally confirm:
 
 - Home has real YouTube cards when quota is available.
 - Search returns real YouTube results.
-- Selecting a live result opens the official YouTube watch destination.
+- Selecting a live result either plays through the bounded native provider on a device or opens the official YouTube watch destination.
 - Quota/auth/network failures produce useful UI states.
 - No seeded prototype item is presented as a live user account item.
+- An Android and an iOS device test confirms first-frame render, play/pause, seek, and fallback behavior.
 
 ## Part D — What not to do
 
 - Do not keep reconnecting a healthy connection to solve quota exhaustion.
 - Do not paste credentials into the repository or chat.
 - Do not add a second YouTube connector because the first one is out of quota.
-- Do not use unofficial stream extraction or scraping to implement downloads.
+- Do not use unofficial stream extraction, signature deciphering, or scraping to implement downloads or to broaden the native playback provider.
 - Do not claim that local AsyncStorage sign-in is Google/YouTube authentication.
 - Do not replace a provider failure with fake content in production paths.

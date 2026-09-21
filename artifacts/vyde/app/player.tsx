@@ -4,6 +4,7 @@ import {
   StyleSheet, Dimensions, PanResponder, Animated, Platform, Linking,
 } from 'react-native';
 import { Image } from 'expo-image';
+import { VideoView, useVideoPlayer } from 'expo-video';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -104,13 +105,61 @@ export default function PlayerScreen() {
   const [seekRight, setSeekRight] = useState(false);
   const [seekLeftKey, setSeekLeftKey] = useState(0);
   const [seekRightKey, setSeekRightKey] = useState(0);
+  const [playbackError, setPlaybackError] = useState<string | null>(null);
+  const [posterVisible, setPosterVisible] = useState(true);
   const isLiked = likedVideoIds.includes(video.id);
   const isSaved = savedVideoIds.includes(video.id);
+  const playbackSource = Platform.OS !== 'web' && isLiveVideo
+    ? liveVideo?.nativePlayback ?? null
+    : null;
+  const showNativeVideo = Platform.OS !== 'web' && !!playbackSource && !playbackError;
+  const nativePlayer = useVideoPlayer(playbackSource, player => {
+    player.audioMixingMode = 'auto';
+    player.staysActiveInBackground = false;
+    player.showNowPlayingNotification = false;
+    player.timeUpdateEventInterval = 0.25;
+  });
 
   useEffect(() => {
     if (!isLiveVideo || !id) return;
-    fetchYouTubeVideo(id).then(setLiveVideo).catch(() => {});
+    setPlaybackError(null);
+    setPosterVisible(true);
+    fetchYouTubeVideo(id)
+      .then(setLiveVideo)
+      .catch(error => {
+        setPlaybackError(error instanceof Error ? error.message : 'YouTube video details could not be loaded.');
+      });
   }, [id, isLiveVideo]);
+
+  useEffect(() => {
+    const statusSubscription = nativePlayer.addListener('statusChange', event => {
+      if (event.status === 'error') {
+        setPlaybackError(event.error?.message ?? 'Native playback could not start.');
+        setPlaying(false);
+      }
+    });
+    const playingSubscription = nativePlayer.addListener('playingChange', event => {
+      setPlaying(event.isPlaying);
+    });
+    const timeSubscription = nativePlayer.addListener('timeUpdate', event => {
+      if (nativePlayer.duration > 0 && Number.isFinite(nativePlayer.duration)) {
+        setProgress(Math.max(0, Math.min(1, event.currentTime / nativePlayer.duration)));
+      }
+    });
+    return () => {
+      statusSubscription.remove();
+      playingSubscription.remove();
+      timeSubscription.remove();
+    };
+  }, [nativePlayer]);
+
+  useEffect(() => {
+    if (!isLiveVideo) return;
+    setProgress(0);
+    setPlaying(false);
+    setPlaybackError(null);
+    setPosterVisible(true);
+  }, [playbackSource?.uri]);
 
   useEffect(() => {
     recordHistory(video.id, {
@@ -126,12 +175,12 @@ export default function PlayerScreen() {
 
   // Auto-advance progress when playing
   useEffect(() => {
-    if (!playing) return;
+    if (!playing || showNativeVideo) return;
     const iv = setInterval(() => {
       setProgress(p => Math.min(p + 0.001, 1));
     }, 200);
     return () => clearInterval(iv);
-  }, [playing]);
+  }, [playing, showNativeVideo]);
 
   // Auto-hide controls
   const resetControlsTimer = useCallback(() => {
@@ -177,14 +226,41 @@ export default function PlayerScreen() {
   const handleSeekBarPress = (e: any) => {
     const x = e.nativeEvent.locationX;
     const barWidth = W;
-    setProgress(Math.max(0, Math.min(1, x / barWidth)));
+    const nextProgress = Math.max(0, Math.min(1, x / barWidth));
+    if (showNativeVideo && nativePlayer.duration > 0) {
+      nativePlayer.currentTime = nextProgress * nativePlayer.duration;
+    }
+    setProgress(nextProgress);
   };
 
   const formatTime = (p: number) => {
-    const totalSecs = Math.round(p * 1371); // 22:51 for v1
+    const totalSecs = Math.round(p * (showNativeVideo && nativePlayer.duration > 0 ? nativePlayer.duration : 1371));
     const m = Math.floor(totalSecs / 60);
     const s = totalSecs % 60;
     return `${m}:${s.toString().padStart(2, '0')}`;
+  };
+
+  const seekBy = (seconds: number) => {
+    if (showNativeVideo) {
+      nativePlayer.seekBy(seconds);
+      return;
+    }
+    setProgress(p => Math.max(0, Math.min(1, p + seconds / 1371)));
+  };
+
+  const togglePlayback = () => {
+    if (showNativeVideo) {
+      if (nativePlayer.playing) nativePlayer.pause();
+      else nativePlayer.play();
+      resetControlsTimer();
+      return;
+    }
+    if (isLiveVideo) {
+      void Linking.openURL(watchUrl);
+      return;
+    }
+    setPlaying(p => !p);
+    resetControlsTimer();
   };
 
   const topPad = Platform.OS === 'web' ? 10 : insets.top;
@@ -203,7 +279,18 @@ export default function PlayerScreen() {
         {...panResponder.panHandlers}
       >
         <View style={ps.player}>
-          <Image source={displayThumbnail} style={ps.poster} contentFit="cover" />
+          {showNativeVideo && (
+            <VideoView
+              player={nativePlayer}
+              style={StyleSheet.absoluteFill}
+              nativeControls={false}
+              contentFit="contain"
+              onFirstFrameRender={() => setPosterVisible(false)}
+            />
+          )}
+          {(!showNativeVideo || posterVisible) && (
+            <Image source={displayThumbnail} style={ps.poster} contentFit="cover" />
+          )}
           <LinearGradient colors={['rgba(0,0,0,0.7)', 'transparent', 'transparent', 'rgba(0,0,0,0.85)']} style={StyleSheet.absoluteFill} />
 
           {/* Top controls */}
@@ -228,24 +315,26 @@ export default function PlayerScreen() {
           {/* Centre play/pause */}
           {showControls && (
             <View style={ps.centreControls}>
-              {isLiveVideo ? (
+              {isLiveVideo && !showNativeVideo ? (
                 <TouchableOpacity
                   style={ps.watchButton}
-                  onPress={() => Linking.openURL(watchUrl)}
+                  onPress={togglePlayback}
                   activeOpacity={0.85}
                 >
                   <Ionicons name="logo-youtube" size={22} color="#fff" />
-                  <Text style={ps.watchButtonText}>Watch on YouTube</Text>
+                  <Text style={ps.watchButtonText}>
+                    {playbackError ? 'Watch on YouTube' : 'Native playback unavailable'}
+                  </Text>
                 </TouchableOpacity>
               ) : (
                 <>
-              <TouchableOpacity hitSlop={20} onPress={() => { setProgress(p => Math.max(0, p - 0.12)); setSeekLeftKey(k => k + 1); }}>
+              <TouchableOpacity hitSlop={20} onPress={() => { seekBy(-10); setSeekLeftKey(k => k + 1); }}>
                 <Ionicons name="play-back" size={34} color="rgba(255,255,255,0.9)" />
               </TouchableOpacity>
-              <TouchableOpacity hitSlop={16} onPress={() => { setPlaying(p => !p); resetControlsTimer(); }} style={ps.playBtn}>
+              <TouchableOpacity hitSlop={16} onPress={togglePlayback} style={ps.playBtn}>
                 <Ionicons name={playing ? 'pause' : 'play'} size={38} color="#fff" />
               </TouchableOpacity>
-              <TouchableOpacity hitSlop={20} onPress={() => { setProgress(p => Math.min(1, p + 0.12)); setSeekRightKey(k => k + 1); }}>
+              <TouchableOpacity hitSlop={20} onPress={() => { seekBy(10); setSeekRightKey(k => k + 1); }}>
                 <Ionicons name="play-forward" size={34} color="rgba(255,255,255,0.9)" />
               </TouchableOpacity>
                 </>
@@ -271,7 +360,7 @@ export default function PlayerScreen() {
             </TouchableOpacity>
             <View style={ps.timeRow}>
               <Text style={ps.timeText}>{formatTime(progress)}</Text>
-              <Text style={ps.timeText}>{video.duration}</Text>
+              <Text style={ps.timeText}>{liveVideo?.duration ?? video.duration}</Text>
             </View>
           </View>
         </View>
@@ -304,10 +393,10 @@ export default function PlayerScreen() {
                 { icon: isLiked ? 'heart' : 'heart-outline', label: 'likes' in video ? video.likes : 'Like', color: isLiked ? C.accent : C.muted, onPress: () => toggleLike(video.id) },
             { icon: 'share-social-outline', label: 'Share', color: C.muted, onPress: () => {} },
             { icon: isSaved ? 'bookmark' : 'bookmark-outline', label: 'Save', color: isSaved ? C.accent : C.muted, onPress: () => toggleSave(video.id) },
-            { icon: 'cloud-download-outline', label: 'Download', color: C.muted, onPress: () => {} },
+            { icon: 'cloud-download-outline', label: 'Unavailable', color: C.dim, onPress: undefined, disabled: true },
             { icon: 'flag-outline', label: 'Report', color: C.dim, onPress: () => {} },
           ].map(action => (
-            <TouchableOpacity key={action.label} style={ps.actionBtn} onPress={action.onPress} activeOpacity={0.7}>
+            <TouchableOpacity key={action.label} style={ps.actionBtn} onPress={action.onPress} disabled={action.disabled} activeOpacity={0.7}>
               <View style={ps.actionIconWrap}>
                 <Ionicons name={action.icon as any} size={20} color={action.color} />
               </View>

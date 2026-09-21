@@ -3,10 +3,10 @@ import { Platform } from 'react-native';
 /**
  * Anonymous YouTube content provider.
  *
- * This adapter intentionally handles discovery and metadata only. It does not
- * return media URLs, decipher signatures, create PoTokens, or authenticate a
- * Google account. Account sync remains a separate official OAuth/Data API
- * concern.
+ * This adapter handles anonymous discovery, metadata, and a deliberately
+ * narrow native playback path. It only accepts media URLs that YouTube has
+ * already returned as directly playable. It never deciphers signatures,
+ * creates PoTokens, or authenticates a Google account.
  */
 export interface LiveVideo {
   id: string;
@@ -23,6 +23,30 @@ export interface LiveVideoDetails extends LiveVideo {
   views: string;
   likes: string;
   duration: string | null;
+  nativePlayback?: NativePlaybackSource;
+}
+
+export interface NativePlaybackSource {
+  /**
+   * Kept inside the native playback boundary. Callers must not persist,
+   * display, log, or expose this URI as a download or account feature.
+   */
+  uri: string;
+  contentType: 'progressive' | 'hls';
+  qualityLabel: string;
+  width: number | null;
+  height: number | null;
+}
+
+interface PlayerFormat {
+  url?: unknown;
+  mimeType?: unknown;
+  qualityLabel?: unknown;
+  width?: unknown;
+  height?: unknown;
+  bitrate?: unknown;
+  signatureCipher?: unknown;
+  cipher?: unknown;
 }
 
 interface InnertubeResponse {
@@ -30,6 +54,15 @@ interface InnertubeResponse {
   onResponseReceivedActions?: unknown;
   onResponseReceivedEndpoints?: unknown;
   currentVideoEndpoint?: unknown;
+  playabilityStatus?: {
+    status?: string;
+    reason?: string;
+  };
+  streamingData?: {
+    hlsManifestUrl?: unknown;
+    formats?: unknown;
+    adaptiveFormats?: unknown;
+  };
   videoDetails?: {
     videoId?: string;
     title?: string;
@@ -132,6 +165,75 @@ function uniqueVideos(videos: LiveVideo[]) {
   return videos.filter((video, index, all) => all.findIndex(item => item.id === video.id) === index);
 }
 
+function trustedMediaUrl(value: unknown) {
+  if (typeof value !== 'string' || value.length === 0) return null;
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== 'https:') return null;
+    if (parsed.hostname !== 'googlevideo.com' && !parsed.hostname.endsWith('.googlevideo.com')) return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+function numberValue(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function directProgressiveSource(format: PlayerFormat): NativePlaybackSource | null {
+  // A ciphered format needs signature deciphering. That is intentionally not
+  // implemented: accepting it would turn this adapter into an extractor.
+  if (format.signatureCipher || format.cipher) return null;
+
+  const uri = trustedMediaUrl(format.url);
+  const mimeType = typeof format.mimeType === 'string' ? format.mimeType : '';
+  const codecs = mimeType.match(/codecs="([^"]+)"/)?.[1] ?? '';
+  if (!uri || !mimeType.startsWith('video/mp4') || !codecs.includes('mp4a')) return null;
+
+  return {
+    uri,
+    contentType: 'progressive',
+    qualityLabel: typeof format.qualityLabel === 'string' ? format.qualityLabel : 'Auto',
+    width: numberValue(format.width),
+    height: numberValue(format.height),
+  };
+}
+
+function selectNativePlayback(response: InnertubeResponse): NativePlaybackSource | undefined {
+  if (response.playabilityStatus?.status && response.playabilityStatus.status !== 'OK') {
+    return undefined;
+  }
+
+  const hlsManifestUrl = trustedMediaUrl(response.streamingData?.hlsManifestUrl);
+  if (hlsManifestUrl) {
+    return {
+      uri: hlsManifestUrl,
+      contentType: 'hls',
+      qualityLabel: 'Auto',
+      width: null,
+      height: null,
+    };
+  }
+
+  const formats = Array.isArray(response.streamingData?.formats)
+    ? response.streamingData.formats as PlayerFormat[]
+    : [];
+  const candidates = formats
+    .map(directProgressiveSource)
+    .filter((source): source is NativePlaybackSource => source !== null);
+
+  // Prefer the best broadly supported MP4 stream up to 1080p. The native
+  // player can still use a lower resolution when that is all YouTube offers.
+  return candidates.sort((a, b) => {
+    const aHeight = a.height ?? 0;
+    const bHeight = b.height ?? 0;
+    const aBucket = aHeight > 1080 ? 1 : 0;
+    const bBucket = bHeight > 1080 ? 1 : 0;
+    return aBucket - bBucket || bHeight - aHeight;
+  })[0];
+}
+
 function apiBase() {
   const domain = process.env.EXPO_PUBLIC_DOMAIN;
   if (!domain) throw new Error('EXPO_PUBLIC_DOMAIN is not configured.');
@@ -182,6 +284,7 @@ export async function fetchYouTubeVideo(id: string): Promise<LiveVideoDetails> {
     views: details.viewCount ?? '0',
     likes: '0',
     duration: details.lengthSeconds ? formatDuration(details.lengthSeconds) : null,
+    nativePlayback: selectNativePlayback(response),
   };
 }
 
