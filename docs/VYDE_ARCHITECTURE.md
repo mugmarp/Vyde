@@ -1,191 +1,77 @@
-# Vyde — Product Description and Architecture
+# Vyde — product and architecture
 
-## 1. Product description
+## Product
 
-Vyde is a premium, dark-first mobile YouTube client built with Expo and React Native. Its purpose is to make YouTube discovery, watching, and personal organization feel more focused and cinematic than a conventional feed.
+Vyde is an Expo/React Native mobile frontend for discovering YouTube videos through a configurable third-party Piped API. It gives users live search, trending discovery, video details, comments, related videos, and a native playback attempt on Android and iOS. If native playback is unavailable, Vyde opens the video's YouTube watch page.
 
-The main product surfaces are:
+The app does not currently connect a user's YouTube account. Likes, saves, playlists, and watch history are stored locally on the device and are not synced. YouTube offline downloads are unavailable.
 
-- **Home** — popular YouTube videos, category filters, and continuation shelves.
-- **Explore** — YouTube search and discovery categories.
-- **Video** — metadata, channel information, actions, comments, and an official YouTube viewing handoff.
-- **Library** — saved items, playlists, and the download-manager experience.
-- **Profile** — signed-out and signed-in account states, subscriptions, and liked content.
-- **Settings** — playback, appearance, downloads, gesture, account, and about settings.
-- **Sign in** — the entry point for future per-user Google/YouTube authorization.
+## Workspace layout
 
-The visual language is near-black (`#050507`) with an orange-red Vyde accent (`#E84A27`) and Outfit typography.
+- `artifacts/vyde/app/` — Expo Router screens
+- `artifacts/vyde/api/youtube.ts` — mobile client and runtime validation for normalized API responses
+- `artifacts/vyde/context/AppContext.tsx` — device-local likes, saves, playlists, and watch history
+- `artifacts/vyde/data/mockData.ts` — legacy design fixtures; production screens must not import seeded content from this file
+- `artifacts/api-server/src/routes/youtube.ts` — server-side Piped adapter
+- `docs/YOUTUBE_LIVE_CONTENT_RUNBOOK.md` — provider boundary, references, smoke checks, and release qualification
 
-## 2. Repository layout
-
-```text
-artifacts/
-  vyde/                         # Expo mobile application
-    app/                        # Expo Router routes/screens
-      (tabs)/                   # Home, Explore, Library, Profile
-      player.tsx                # Video detail/player surface
-      settings.tsx              # Settings
-      sign-in.tsx               # Sign-in entry point
-    api/youtube.ts              # Mobile YouTube API client
-    components/                 # Shared React Native components
-    context/                    # Local app and auth state
-    data/mockData.ts            # Prototype-only fallback/content fixtures
-    constants/colors.ts         # Theme tokens
-    assets/                     # App icon and generated visual assets
-
-  api-server/                   # Express API service
-    src/routes/youtube.ts       # YouTube connector proxy endpoints
-    src/routes/index.ts         # Route registration
-    src/app.ts                  # Express app setup
-    src/index.ts                # Server entry point
-
-  mockup-sandbox/               # Earlier visual mockup/design artifact
-
-docs/
-  VYDE_ARCHITECTURE.md          # This document
-```
-
-## 3. Runtime architecture
+## Request flow
 
 ```text
-Expo / React Native mobile app
-          |
-          | HTTPS REST requests
-          | EXPO_PUBLIC_DOMAIN/api/youtube/*
-          v
+Vyde Expo app
+    | HTTPS /api/youtube/*
+    v
 Express API server
-          |
-          | Replit connector proxy
-          v
-YouTube Data API v3
+    | PIPED_API_BASE_URL (HTTPS)
+    v
+Piped-compatible upstream
 ```
 
-### Mobile application
+The server defaults to `https://api.piped.private.coffee`, a public third-party instance that returned live responses during implementation. Configure `PIPED_API_BASE_URL` on the API server to use another HTTPS-compatible endpoint. The default instance has no availability or privacy guarantee and is not automatically suitable for a production service.
 
-The mobile app uses Expo Router's file-based routing. The root layout loads fonts, safe-area support, error handling, React Query's provider, authentication context, app context, and gesture/keyboard providers.
-
-Shared state is intentionally split:
-
-- `AuthContext` — current local authentication state and user presentation data.
-- `AppContext` — local likes, saves, playlists, and download-manager state.
-- `useState` — screen-local state such as search text, player controls, loading indicators, and selected filters.
-- React Query is available at the root and should become the preferred home for server-backed cache/state as the API surface grows.
-
-### API server
-
-The Express service is the trust boundary for YouTube connector access. The mobile client calls the server and never receives connector credentials.
-
-Current routes:
+## API routes
 
 | Route | Purpose |
 | --- | --- |
-| `GET /api/youtube/feed` | Fetches normalized YouTube discovery metadata |
-| `GET /api/youtube/search?q=...` | Searches YouTube videos |
-| `GET /api/youtube/videos/:id` | Fetches video details, statistics, duration, and watch URL |
+| `GET /api/youtube/feed?region=UG` | Live trending videos |
+| `GET /api/youtube/search?q=...` | Live video search |
+| `GET /api/youtube/videos/:id` | Live metadata, permitted playback candidates, and related videos |
+| `GET /api/youtube/comments/:id` | Live comments |
 
-The server normalizes YouTube responses into app-friendly objects containing fields such as `id`, `title`, `description`, `channel`, `thumbnail`, and `watchUrl`.
+The API server validates video IDs and query length, requires HTTPS upstream and media URLs, normalizes provider data, and returns explicit errors. It does not substitute mock data on failure.
 
-## 4. Current data flows
+## Native playback
 
-### Home feed
+The Piped adapter exposes HTTPS HLS manifests and progressive MP4 formats marked as containing audio. The mobile client validates the response shape and candidate URL/type again, tries candidates in order, and falls back to the official YouTube watch URL after playback failures. Media URLs are used internally by `expo-video`; the UI does not print or log them, and they are not stored in local history.
 
-1. Home mounts and calls `fetchLiveFeed()`.
-2. Native Android/iOS builds call anonymous Innertube directly with a stable discovery query.
-3. The web preview uses `/api/youtube/feed` because browser CORS blocks direct Innertube requests.
-4. Results are normalized into `LiveVideo` objects.
-5. Home renders loading, live results, empty, or retry/error states.
+Vyde does not implement YouTube `signatureCipher`/`cipher` deciphering, player-JavaScript scraping, PoToken generation, separate audio/video stream assembly, background playback, now-playing notifications, media caching, or offline downloads. A public provider returning candidates is not evidence that the playback path is policy-approved or reliable. Physical Android and iOS verification remains required.
 
-### Search
+## Screens and local data
 
-1. The user enters at least two characters.
-2. Search waits briefly after typing to avoid issuing a request for every keystroke.
-3. Native Android/iOS builds call anonymous Innertube directly; the web preview uses `/api/youtube/search`.
-4. Results are mapped into shared `VideoCard` data.
-5. Throttling, quota, CORS, and connector failures are shown as explicit error states.
+- **Home:** live feed, searchable category chips, and recently watched items from local history.
+- **Explore:** debounced live search, live trending results, and category queries.
+- **Player:** live metadata, real comments, related videos, native playback attempt, and YouTube fallback.
+- **Library:** local playlists and an explicit unavailable state for offline YouTube media.
+- **Profile:** local device data only; no simulated account, subscriptions, or seeded video previews.
+- **Settings:** concise playback/provider and account/local-storage disclosures.
 
-### Video viewing
+Provider errors and empty responses are visible. There is no fake feed, fake comments, fake account, seeded subscription shelf, fabricated watch progress, or simulated download manager in these production screen paths.
 
-1. A video ID is passed to the `/player` route.
-2. For a live YouTube ID, the screen requests `/api/youtube/videos/:id`.
-3. Vyde displays the returned metadata and opens the official YouTube watch URL when the user selects **Watch on YouTube**.
-4. The app must not represent a YouTube Data API response as a playable stream URL.
+## Operations and checks
 
-## 5. What is prototype-only today
-
-The following areas are UI/state prototypes and should not be described as complete YouTube synchronization:
-
-- `AuthContext` currently persists a local simulated sign-in state.
-- Some profile, playlist, comments, continuation, and download-manager content comes from `mockData.ts`.
-- Likes and saves currently update local state only.
-- The download UI represents local download state, but no official YouTube media download pipeline exists.
-- Player controls and progress are retained for the original design prototype; live YouTube results use the official YouTube handoff instead of an extracted stream.
-
-## 6. Recommended production architecture
-
-### Per-user authentication
-
-For a published multi-user app, replace local simulated sign-in with an actual Google OAuth flow using the correct YouTube scopes. The server should:
-
-1. Start the user authorization flow.
-2. Receive the OAuth callback.
-3. Store encrypted, server-side refresh-token material.
-4. Associate the YouTube account with the app user.
-5. Proxy only the permitted user-scoped operations.
-6. Revoke/delete tokens on account disconnect.
-
-The currently attached Replit YouTube connection is environment-level authorization. It is useful for development and connector-backed server calls, but it is not automatically a complete per-user identity system for a deployed app.
-
-### Server-backed YouTube features
-
-Add normalized routes for:
-
-- `videos` and channel details
-- comments and replies
-- liked videos
-- playlists and playlist items
-- subscriptions
-- rating/like mutations where scopes permit them
-
-Each route should validate IDs and query parameters, return a stable Vyde response shape, and preserve upstream quota/auth errors instead of returning fabricated data.
-
-### Server state and caching
-
-Use React Query for feed/search/video-detail requests with:
-
-- short stale times for feed/search results
-- query-keyed caching by search term and video ID
-- retry only for transient network errors, not quota or authorization errors
-- cancellation of stale search requests
-
-### Offline behavior
-
-The official YouTube Data API does not provide third-party stream URLs or downloadable video files. Therefore the production design should choose one of these explicit directions:
-
-1. Keep Vyde as an online discovery/client experience and remove claims of permanent YouTube downloads.
-2. Integrate an officially permitted YouTube offline/playback capability if YouTube makes one available for the target platform and use case.
-3. Support offline storage only for app-owned metadata, thumbnails, and user-created local content—not extracted YouTube media.
-
-## 7. Operational constraints
-
-- YouTube API quota is a runtime dependency. Search and feed calls can fail even when the code is correct.
-- Never put API keys, connector credentials, OAuth tokens, or refresh tokens in the mobile bundle, source files, logs, or chat.
-- `EXPO_PUBLIC_DOMAIN` is the mobile-to-server routing configuration; do not hardcode localhost or a production hostname in the app.
-- Restart the API workflow after server route/dependency changes.
-- Run both package typechecks after changes:
+- API workflow: `artifacts/api-server: API Server`
+- Mobile workflow: `artifacts/vyde: expo`
+- The mobile app requires `EXPO_PUBLIC_DOMAIN` to reach the API.
+- `PIPED_API_BASE_URL` belongs on the server and must use HTTPS.
+- Run:
 
 ```bash
 pnpm --filter @workspace/api-server run typecheck
 pnpm --filter @workspace/vyde run typecheck
 ```
 
-## 8. Definition of “production-ready”
+See `docs/YOUTUBE_LIVE_CONTENT_RUNBOOK.md` for live endpoint smoke checks and physical-device test steps.
 
-Vyde should only be called production-ready after:
+## Production gates
 
-- live feed/search/video requests work with an available YouTube quota;
-- per-user OAuth is implemented and tested;
-- account-scoped reads/writes respect YouTube scopes and consent;
-- local prototype data is removed or clearly isolated from production paths;
-- playback behavior uses an officially supported mechanism;
-- download claims are removed or backed by an officially supported offline capability;
-- API error, quota, loading, empty, and retry states are covered across mobile screens.
+Before production use, select and review a provider that the operator is authorized to use, document its privacy/availability implications, and establish failover behavior. Keep any future user OAuth integration separate from anonymous discovery. Do not claim YouTube account synchronization, approved native playback, or offline video support until those features are independently implemented and verified.

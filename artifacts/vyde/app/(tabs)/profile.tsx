@@ -1,16 +1,13 @@
 import React from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, Platform, Alert,
+  StyleSheet, Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useAuth } from '@/context/AuthContext';
 import { useAppContext } from '@/context/AppContext';
-import { CHANNELS, VIDEOS } from '@/data/mockData';
 import { Image } from 'expo-image';
-import { LinearGradient } from 'expo-linear-gradient';
 
 const C = {
   bg: '#050507', elevated: '#0C0C12', hover: '#161620',
@@ -35,157 +32,79 @@ const st = StyleSheet.create({
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
-  const { isSignedIn, user, signOut } = useAuth();
-  const { likedVideoIds, history, playlists, downloads } = useAppContext();
+  const { likedVideoIds, savedVideoIds, history, playlists } = useAppContext();
   const router = useRouter();
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
-  const stats = [
-    { label: 'Subscribed', value: '—' },
-    { label: 'Watched', value: history.length.toString() },
-    { label: 'Saved', value: likedVideoIds.length.toString() },
-  ];
-  const quickLinks = [
-    { icon: 'time-outline', label: 'Watch history', count: history.length.toString() },
-    { icon: 'heart-outline', label: 'Liked videos', count: likedVideoIds.length.toString() },
-    { icon: 'list-outline', label: 'Local playlists', count: playlists.length.toString() },
-    { icon: 'cloud-download-outline', label: 'Downloads', count: downloads.length.toString() },
-  ];
-
-  // ── Signed out ──────────────────────────────────────────────────────────
-  if (!isSignedIn) {
-    return (
-      <View style={[s.root, { paddingTop: topPad }]}>
-        <LinearGradient colors={['#0C0C12', '#050507']} style={s.signedOutHero}>
-          <View style={s.vydeMarkWrap}>
-            <Text style={s.vydeMark}>V</Text>
-          </View>
-          <Text style={s.heroTitle}>Your content, personalised</Text>
-          <Text style={s.heroSub}>Sign in to access your history, subscriptions, and recommendations.</Text>
-        </LinearGradient>
-
-        <View style={s.featureBullets}>
-          {[
-            ['sparkles-outline', 'Personalised recommendations'],
-            ['bookmark-outline', 'Keep playlists on this device'],
-            ['cloud-download-outline', 'Track local download metadata'],
-            ['notifications-outline', 'YouTube account sync (coming soon)'],
-          ].map(([icon, text]) => (
-            <View key={text} style={s.bullet}>
-              <Ionicons name={icon as any} size={18} color={C.accent} />
-              <Text style={s.bulletText}>{text}</Text>
-            </View>
-          ))}
-        </View>
-
-        <TouchableOpacity style={s.googleBtn} onPress={() => router.push('/sign-in')} activeOpacity={0.88}>
-          <Ionicons name="logo-google" size={20} color="#fff" />
-          <Text style={s.googleBtnText}>Continue in local mode</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={s.skipBtn}>
-          <Text style={s.skipBtnText}>Continue without signing in</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
-  // ── Signed in ───────────────────────────────────────────────────────────
   return (
     <ScrollView style={s.root} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
-      {/* Header banner */}
-      <LinearGradient colors={['#1a0800', '#050507']} style={[s.heroBanner, { paddingTop: topPad + 16 }]}>
-        <View style={s.profileRow}>
-          <View style={[s.bigAvatar, { backgroundColor: C.accent }]}>
-            <Text style={s.bigAvatarText}>{user?.initials}</Text>
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={s.userName}>{user?.name}</Text>
-            <Text style={s.userEmail}>{user?.email}</Text>
-          </View>
-          <TouchableOpacity onPress={() => router.push('/settings')} hitSlop={10}>
-            <Ionicons name="settings-outline" size={22} color={C.muted} />
-          </TouchableOpacity>
+      <View style={[s.localHeader, { paddingTop: topPad + 20 }]}>
+        <View style={s.vydeMarkWrap}><Text style={s.vydeMark}>V</Text></View>
+        <View style={{ flex: 1 }}>
+          <Text style={s.heroTitle}>Your Vyde</Text>
+          <Text style={s.heroSub}>Your likes, saves, playlists, and watch history stay on this device.</Text>
         </View>
+        <TouchableOpacity onPress={() => router.push('/settings')} hitSlop={10}>
+          <Ionicons name="settings-outline" size={22} color={C.muted} />
+        </TouchableOpacity>
+      </View>
 
-        {/* Stats */}
-        <View style={s.statsRow}>
-          {stats.map(stat => <StatPill key={stat.label} {...stat} />)}
-        </View>
-      </LinearGradient>
+      <View style={s.statsRow}>
+        <StatPill label="Watched" value={String(history.length)} />
+        <StatPill label="Liked" value={String(likedVideoIds.length)} />
+        <StatPill label="Saved" value={String(savedVideoIds.length)} />
+      </View>
 
-      {/* Quick links */}
       <View style={s.section}>
-        <Text style={s.sectionLabel}>Your Content</Text>
-        <View style={{ gap: 2 }}>
-          {quickLinks.map(link => (
-            <TouchableOpacity key={link.label} style={s.linkRow} activeOpacity={0.7}>
-              <View style={s.linkIcon}>
-                <Ionicons name={link.icon as any} size={20} color={C.accent} />
-              </View>
-              <Text style={s.linkLabel}>{link.label}</Text>
-              <Text style={s.linkCount}>{link.count}</Text>
-              <Ionicons name="chevron-forward" size={16} color={C.dim} />
-            </TouchableOpacity>
-          ))}
+        <Text style={s.sectionLabel}>On this device</Text>
+        <TouchableOpacity style={s.linkRow} onPress={() => router.push('/(tabs)/library')}>
+          <View style={s.linkIcon}><Ionicons name="list-outline" size={20} color={C.accent} /></View>
+          <Text style={s.linkLabel}>Local playlists</Text>
+          <Text style={s.linkCount}>{playlists.length}</Text>
+          <Ionicons name="chevron-forward" size={16} color={C.dim} />
+        </TouchableOpacity>
+        <View style={s.localNotice}>
+          <Ionicons name="information-circle-outline" size={18} color={C.muted} />
+          <Text style={s.localNoticeText}>Vyde is not connected to a YouTube account. These actions do not sync with YouTube.</Text>
         </View>
       </View>
 
-      {/* Subscriptions */}
       <View style={s.section}>
-        <Text style={s.sectionLabel}>Subscriptions</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 20 }}>
-          {CHANNELS.map(ch => (
-            <View key={ch.id} style={{ alignItems: 'center', gap: 6 }}>
-              <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: ch.color, alignItems: 'center', justifyContent: 'center' }}>
-                <Text style={{ color: '#fff', fontWeight: '700', fontSize: 16 }}>{ch.initials}</Text>
-              </View>
-              <Text style={{ color: C.muted, fontSize: 11 }} numberOfLines={1}>{ch.name.split(' ')[0]}</Text>
+        <Text style={s.sectionLabel}>Recently watched</Text>
+        {history.length === 0 ? (
+          <View style={s.emptyState}>
+            <Ionicons name="time-outline" size={32} color={C.dim} />
+            <Text style={s.heroSub}>Videos you open will appear here.</Text>
+          </View>
+        ) : history.slice(0, 20).map(item => (
+          <TouchableOpacity
+            key={item.videoId}
+            style={s.historyRow}
+            activeOpacity={0.8}
+            onPress={() => router.push({ pathname: '/player', params: { id: item.videoId } })}
+          >
+            <Image source={item.thumbnail} style={s.historyThumb} contentFit="cover" />
+            <View style={{ flex: 1 }}>
+              <Text style={s.historyTitle} numberOfLines={2}>{item.title}</Text>
+              <Text style={s.historyMeta}>{item.channel}</Text>
             </View>
-          ))}
-        </ScrollView>
+            <Ionicons name="play-circle-outline" size={22} color={C.muted} />
+          </TouchableOpacity>
+        ))}
       </View>
-
-      {/* Liked videos preview */}
-      {likedVideoIds.length > 0 && (
-        <View style={s.section}>
-          <Text style={s.sectionLabel}>Liked Videos</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12 }}>
-            {VIDEOS.filter(v => likedVideoIds.includes(v.id)).map(v => (
-              <TouchableOpacity
-                key={v.id}
-                style={{ width: 160 }}
-                activeOpacity={0.85}
-                onPress={() => router.push({ pathname: '/player', params: { id: v.id } })}
-              >
-                <View style={{ width: 160, height: 90, borderRadius: 10, overflow: 'hidden', backgroundColor: '#111' }}>
-                  <Image source={v.thumbnail} style={{ width: '100%', height: '100%' }} contentFit="cover" />
-                </View>
-                <Text style={{ color: C.text, fontSize: 12, fontFamily: 'Outfit_600SemiBold', marginTop: 6 }} numberOfLines={2}>{v.title}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-      )}
-
-      {/* Sign out */}
-      <TouchableOpacity
-        style={s.signOutBtn}
-        onPress={() => {
-          Alert.alert('Sign out', 'Are you sure you want to sign out?', [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Sign out', style: 'destructive', onPress: signOut },
-          ]);
-        }}
-      >
-        <Ionicons name="log-out-outline" size={18} color="#ef4444" />
-        <Text style={s.signOutText}>Sign out</Text>
-      </TouchableOpacity>
     </ScrollView>
   );
 }
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
+  localHeader: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 16, paddingBottom: 22 },
+  localNotice: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginTop: 12, padding: 12, borderRadius: 10, backgroundColor: C.elevated },
+  localNoticeText: { flex: 1, color: C.muted, fontSize: 12, lineHeight: 17 },
+  emptyState: { alignItems: 'center', paddingVertical: 24, gap: 8 },
+  historyRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border },
+  historyThumb: { width: 104, height: 58, borderRadius: 7, backgroundColor: C.elevated },
+  historyTitle: { color: C.text, fontSize: 13, fontFamily: 'Outfit_600SemiBold', lineHeight: 18 },
+  historyMeta: { color: C.dim, fontSize: 11, marginTop: 4 },
   signedOutHero: {
     alignItems: 'center', paddingTop: 60, paddingBottom: 32, paddingHorizontal: 32,
   },

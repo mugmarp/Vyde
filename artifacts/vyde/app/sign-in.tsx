@@ -1,14 +1,12 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  Platform, Animated,
+  Platform,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useAuth } from '@/context/AuthContext';
-import * as Haptics from 'expo-haptics';
 
 const C = {
   bg: '#050507', elevated: '#0C0C12',
@@ -17,27 +15,14 @@ const C = {
 };
 
 const FEATURES = [
-  { icon: 'sparkles-outline',          label: 'Personalised local discovery' },
-  { icon: 'bookmark-outline',          label: 'Keep playlists on this device' },
-  { icon: 'cloud-download-outline',    label: 'Save local download metadata' },
-  { icon: 'notifications-outline',     label: 'Official account sync coming soon' },
-  { icon: 'hand-left-outline',         label: 'Gesture controls for brightness & volume' },
+  { icon: 'search-outline', label: 'Browse live videos from the configured provider' },
+  { icon: 'bookmark-outline', label: 'Keep likes and playlists on this device' },
+  { icon: 'play-circle-outline', label: 'Try compatible native playback when available' },
 ];
 
 export default function SignInScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { signIn } = useAuth();
-  const [loading, setLoading] = useState(false);
-
-  const handleSignIn = async () => {
-    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setLoading(true);
-    await new Promise(r => setTimeout(r, 350));
-    await signIn();
-    setLoading(false);
-    router.back();
-  };
 
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
   const botPad = Platform.OS === 'web' ? 34 : insets.bottom;
@@ -73,31 +58,15 @@ export default function SignInScreen() {
         ))}
       </View>
 
-      {/* CTA */}
+      {/* Account state */}
       <View style={s.ctaBlock}>
-        <TouchableOpacity
-          style={[s.googleBtn, loading && { opacity: 0.7 }]}
-          onPress={handleSignIn}
-          activeOpacity={0.88}
-          disabled={loading}
-        >
-          {loading ? (
-            <Text style={s.googleBtnText}>Signing in…</Text>
-          ) : (
-            <>
-              <Ionicons name="logo-google" size={20} color="#fff" />
-              <Text style={s.googleBtnText}>Continue in local mode</Text>
-            </>
-          )}
-        </TouchableOpacity>
-
+        <View style={s.notice}>
+          <Ionicons name="information-circle-outline" size={20} color={C.accent} />
+          <Text style={s.noticeText}>Google/YouTube account connection is not implemented. You can browse and use Vyde’s local library without signing in.</Text>
+        </View>
         <TouchableOpacity style={s.skipBtn} onPress={() => router.back()}>
-          <Text style={s.skipText}>Continue without signing in</Text>
+          <Text style={s.skipText}>Go back</Text>
         </TouchableOpacity>
-
-        <Text style={s.consent}>
-          Local mode stores Vyde data on this device. Official Google/YouTube account sync will be added separately.
-        </Text>
       </View>
     </LinearGradient>
   );
@@ -128,5 +97,7 @@ const s = StyleSheet.create({
   skipBtn: { alignItems: 'center', paddingVertical: 14 },
   skipText: { color: C.muted, fontSize: 15, fontFamily: 'Outfit_500Medium' },
   consent: { color: C.dim, fontSize: 11, textAlign: 'center', lineHeight: 17, marginTop: 16, paddingHorizontal: 16 },
+  notice: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, padding: 14, borderRadius: 12, backgroundColor: C.elevated, borderWidth: 1, borderColor: C.borderLight },
+  noticeText: { flex: 1, color: C.muted, fontSize: 13, lineHeight: 19 },
   consentLink: { color: C.muted, textDecorationLine: 'underline' },
 });

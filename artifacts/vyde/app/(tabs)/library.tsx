@@ -1,12 +1,10 @@
 import React, { useState } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, Platform, Alert,
+  View, Text, ScrollView, TouchableOpacity, TextInput, Modal,
+  StyleSheet, Platform,
 } from 'react-native';
-import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useAppContext } from '@/context/AppContext';
 
 const C = {
@@ -15,118 +13,25 @@ const C = {
   accent: '#E84A27', border: '#1F1F2E', borderLight: '#2A2A3D',
 };
 
-const USED_GB = 4.7;
-const TOTAL_GB = 128;
-const pct = USED_GB / TOTAL_GB;
-
-function StorageBar() {
-  return (
-    <LinearGradient colors={['#0C0C12', '#050507']} style={sb.wrap}>
-      <View style={sb.row}>
-        <View>
-          <Text style={sb.used}>{USED_GB} GB</Text>
-          <Text style={sb.label}>used of {TOTAL_GB} GB</Text>
-        </View>
-        <View style={sb.segments}>
-          <View style={sb.seg}>
-            <View style={[sb.dot, { backgroundColor: C.accent }]} />
-            <Text style={sb.segLabel}>Videos  {(USED_GB * 0.72).toFixed(1)}GB</Text>
-          </View>
-          <View style={sb.seg}>
-            <View style={[sb.dot, { backgroundColor: '#3A7BD5' }]} />
-            <Text style={sb.segLabel}>Audio  {(USED_GB * 0.28).toFixed(1)}GB</Text>
-          </View>
-        </View>
-      </View>
-      <View style={sb.track}>
-        <View style={[sb.fillVideo, { flex: pct * 0.72 }]} />
-        <View style={[sb.fillAudio,  { flex: pct * 0.28 }]} />
-        <View style={{ flex: 1 - pct }} />
-      </View>
-      <Text style={sb.free}>{(TOTAL_GB - USED_GB).toFixed(1)} GB free</Text>
-    </LinearGradient>
-  );
-}
-
-const sb = StyleSheet.create({
-  wrap: { marginHorizontal: 14, borderRadius: 16, padding: 16, marginBottom: 8, borderWidth: 1, borderColor: C.borderLight },
-  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 },
-  used: { color: C.text, fontSize: 28, fontFamily: 'Outfit_700Bold' },
-  label: { color: C.muted, fontSize: 12 },
-  segments: { gap: 6, alignItems: 'flex-end' },
-  seg: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  dot: { width: 8, height: 8, borderRadius: 4 },
-  segLabel: { color: C.muted, fontSize: 12 },
-  track: { height: 6, borderRadius: 3, backgroundColor: C.border, flexDirection: 'row', overflow: 'hidden' },
-  fillVideo: { backgroundColor: C.accent },
-  fillAudio: { backgroundColor: '#3A7BD5' },
-  free: { color: C.dim, fontSize: 11, marginTop: 8, textAlign: 'right' },
-});
-
-function DownloadRow({ item, onRemove }: { item: ReturnType<() => ReturnType<typeof require>> | any; onRemove: () => void }) {
-  const statusColor = item.status === 'active' ? C.accent : item.status === 'queued' ? C.muted : '#52B788';
-  const statusLabel = item.status === 'active' ? `Downloading · ${item.speedMbps} MB/s` : item.status === 'queued' ? 'Queued' : 'Downloaded';
-
-  return (
-    <View style={dr.row}>
-      <View style={dr.thumbWrap}>
-        <Image source={item.thumbnail} style={[dr.thumb, item.status === 'queued' && { opacity: 0.4 }]} contentFit="cover" />
-        {item.status === 'completed' && (
-          <View style={dr.checkBadge}>
-            <Ionicons name="checkmark" size={10} color="#fff" />
-          </View>
-        )}
-      </View>
-      <View style={{ flex: 1 }}>
-        <Text style={dr.title} numberOfLines={2}>{item.title}</Text>
-        <Text style={dr.channel}>{item.channel} · {item.duration}</Text>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
-          <View style={[dr.statusDot, { backgroundColor: statusColor }]} />
-          <Text style={[dr.status, { color: statusColor }]}>{statusLabel}</Text>
-        </View>
-        {item.status === 'active' && (
-          <View style={dr.track}>
-            <View style={[dr.fill, { width: `${Math.round(item.progress * 100)}%` as any }]} />
-          </View>
-        )}
-      </View>
-      <TouchableOpacity onPress={onRemove} hitSlop={10} style={dr.del}>
-        <Ionicons name="trash-outline" size={18} color={C.dim} />
-      </TouchableOpacity>
-    </View>
-  );
-}
-
-const dr = StyleSheet.create({
-  row: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border },
-  thumbWrap: { width: 100, height: 56, borderRadius: 8, overflow: 'hidden', backgroundColor: '#111', position: 'relative' },
-  thumb: { width: '100%', height: '100%' },
-  checkBadge: { position: 'absolute', bottom: 4, right: 4, width: 16, height: 16, borderRadius: 8, backgroundColor: '#52B788', alignItems: 'center', justifyContent: 'center' },
-  title: { color: C.text, fontSize: 13, fontFamily: 'Outfit_600SemiBold', lineHeight: 18 },
-  channel: { color: C.dim, fontSize: 11, marginTop: 2 },
-  statusDot: { width: 6, height: 6, borderRadius: 3 },
-  status: { fontSize: 11, fontFamily: 'Outfit_500Medium' },
-  track: { height: 3, backgroundColor: C.border, borderRadius: 2, marginTop: 6, overflow: 'hidden' },
-  fill: { height: 3, backgroundColor: C.accent },
-  del: { paddingLeft: 4, paddingTop: 4 },
-});
-
 export default function LibraryScreen() {
   const insets = useSafeAreaInsets();
-  const { downloads, playlists, removeDownload } = useAppContext();
+  const { playlists, createPlaylist } = useAppContext();
   const [tab, setTab] = useState<'downloads' | 'playlists'>('downloads');
+  const [createOpen, setCreateOpen] = useState(false);
+  const [playlistName, setPlaylistName] = useState('');
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
-
-  const active    = downloads.filter(d => d.status === 'active');
-  const queued    = downloads.filter(d => d.status === 'queued');
-  const completed = downloads.filter(d => d.status === 'completed');
+  const submitPlaylist = () => {
+    createPlaylist(playlistName);
+    setPlaylistName('');
+    setCreateOpen(false);
+  };
 
   return (
     <View style={s.root}>
       {/* Header */}
       <View style={[s.header, { paddingTop: topPad + 10 }]}>
         <Text style={s.logo}>vyde</Text>
-        <TouchableOpacity hitSlop={10}>
+        <TouchableOpacity hitSlop={10} onPress={() => { setTab('playlists'); setCreateOpen(true); }}>
           <Ionicons name="add-circle-outline" size={26} color={C.text} />
         </TouchableOpacity>
       </View>
@@ -144,56 +49,15 @@ export default function LibraryScreen() {
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
         {tab === 'downloads' ? (
-          <>
-            <View style={{ paddingTop: 16 }}>
-              <StorageBar />
-            </View>
-
-            {active.length > 0 && (
-              <View style={s.section}>
-                <Text style={s.sectionLabel}>Downloading</Text>
-                <View style={{ paddingHorizontal: 14 }}>
-                  {active.map(d => (
-                    <DownloadRow key={d.videoId} item={d} onRemove={() => removeDownload(d.videoId)} />
-                  ))}
-                </View>
-              </View>
-            )}
-
-            {queued.length > 0 && (
-              <View style={s.section}>
-                <Text style={s.sectionLabel}>Queued</Text>
-                <View style={{ paddingHorizontal: 14 }}>
-                  {queued.map(d => (
-                    <DownloadRow key={d.videoId} item={d} onRemove={() => removeDownload(d.videoId)} />
-                  ))}
-                </View>
-              </View>
-            )}
-
-            {completed.length > 0 && (
-              <View style={s.section}>
-                <Text style={s.sectionLabel}>Downloaded</Text>
-                <View style={{ paddingHorizontal: 14 }}>
-                  {completed.map(d => (
-                    <DownloadRow key={d.videoId} item={d} onRemove={() => removeDownload(d.videoId)} />
-                  ))}
-                </View>
-              </View>
-            )}
-
-            {downloads.length === 0 && (
-              <View style={s.empty}>
-                <Ionicons name="cloud-download-outline" size={44} color={C.dim} />
-                <Text style={s.emptyTitle}>No downloads yet</Text>
-                <Text style={s.emptyBody}>Videos you download will appear here for offline viewing.</Text>
-              </View>
-            )}
-          </>
+          <View style={s.empty}>
+            <Ionicons name="cloud-download-outline" size={44} color={C.dim} />
+            <Text style={s.emptyTitle}>Offline media unavailable</Text>
+            <Text style={s.emptyBody}>Vyde does not download YouTube videos. Use YouTube’s official offline feature where it is available.</Text>
+          </View>
         ) : (
           <View style={{ paddingHorizontal: 14, paddingTop: 16 }}>
             {playlists.map(pl => (
-              <TouchableOpacity key={pl.id} style={s.plRow} activeOpacity={0.8}>
+              <View key={pl.id} style={s.plRow}>
                 <View style={s.plIcon}>
                   <Ionicons name={pl.isPrivate ? 'lock-closed' : 'list'} size={20} color={C.accent} />
                 </View>
@@ -201,8 +65,7 @@ export default function LibraryScreen() {
                   <Text style={s.plName}>{pl.name}</Text>
                   <Text style={s.plMeta}>{pl.count} videos{pl.isPrivate ? ' · Private' : ''}</Text>
                 </View>
-                <Ionicons name="chevron-forward" size={18} color={C.dim} />
-              </TouchableOpacity>
+              </View>
             ))}
             {playlists.length === 0 && (
               <View style={s.empty}>
@@ -211,19 +74,53 @@ export default function LibraryScreen() {
                 <Text style={s.emptyBody}>Create a Vyde playlist to organize videos on this device.</Text>
               </View>
             )}
-            <TouchableOpacity style={s.newPlaylist}>
+            <TouchableOpacity style={s.newPlaylist} onPress={() => setCreateOpen(true)}>
               <Ionicons name="add" size={18} color={C.accent} />
               <Text style={s.newPlaylistText}>New playlist</Text>
             </TouchableOpacity>
           </View>
         )}
       </ScrollView>
+      <Modal visible={createOpen} transparent animationType="fade" onRequestClose={() => setCreateOpen(false)}>
+        <View style={s.modalBackdrop}>
+          <View style={s.modalCard}>
+            <Text style={s.emptyTitle}>New local playlist</Text>
+            <Text style={s.emptyBody}>This list is stored on this device and is not synced to YouTube.</Text>
+            <TextInput
+              autoFocus
+              value={playlistName}
+              onChangeText={setPlaylistName}
+              placeholder="Playlist name"
+              placeholderTextColor={C.dim}
+              maxLength={60}
+              style={s.playlistInput}
+              returnKeyType="done"
+              onSubmitEditing={submitPlaylist}
+            />
+            <View style={s.modalActions}>
+              <TouchableOpacity onPress={() => { setCreateOpen(false); setPlaylistName(''); }}>
+                <Text style={s.modalCancel}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={s.modalCreate} onPress={submitPlaylist} disabled={!playlistName.trim()}>
+                <Text style={s.modalCreateText}>Create</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', padding: 24 },
+  modalCard: { backgroundColor: C.elevated, borderRadius: 16, borderWidth: 1, borderColor: C.borderLight, padding: 20, gap: 14 },
+  playlistInput: { color: C.text, backgroundColor: C.bg, borderWidth: 1, borderColor: C.borderLight, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 11 },
+  modalActions: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 20, marginTop: 4 },
+  modalCancel: { color: C.muted, fontSize: 14 },
+  modalCreate: { backgroundColor: C.accent, borderRadius: 18, paddingHorizontal: 18, paddingVertical: 9 },
+  modalCreateText: { color: '#fff', fontSize: 14, fontFamily: 'Outfit_700Bold' },
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 16, paddingBottom: 12,

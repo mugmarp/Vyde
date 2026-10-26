@@ -1,13 +1,11 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Image } from 'expo-image';
-import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { Video } from '@/data/mockData';
 import { LiveVideo } from '@/api/youtube';
 
 interface Props {
-  video: Video | LiveVideo;
+  video: LiveVideo;
   progress?: number;
 }
 
@@ -23,15 +21,19 @@ const C = {
 
 export default function VideoCard({ video, progress }: Props) {
   const router = useRouter();
-  const channelColor = 'channelColor' in video ? video.channelColor : C.accent;
-  const channelInitials = 'channelInitials' in video
-    ? video.channelInitials
-    : video.channel.slice(0, 2).toUpperCase();
+  const channelInitials = video.channel.trim().slice(0, 2).toUpperCase() || 'YT';
+  const metadata = [
+    video.views ? `${video.views} views` : null,
+    video.publishedAt || null,
+  ].filter(Boolean).join(' · ');
 
   return (
     <TouchableOpacity
       activeOpacity={0.88}
-      onPress={() => router.push({ pathname: '/player', params: { id: video.id } })}
+      onPress={() => router.push({
+        pathname: '/player',
+        params: { id: video.id, title: video.title, channel: video.channel, thumbnail: video.thumbnail },
+      })}
       style={styles.container}
     >
       {/* Thumbnail */}
@@ -39,7 +41,7 @@ export default function VideoCard({ video, progress }: Props) {
         <Image source={video.thumbnail} style={styles.thumb} contentFit="cover" />
         <View style={styles.durationBadge}>
           <Text style={styles.durationText}>
-            {'duration' in video ? video.duration : 'YouTube'}
+            {video.duration ?? 'Video'}
           </Text>
         </View>
         {progress !== undefined && (
@@ -51,24 +53,18 @@ export default function VideoCard({ video, progress }: Props) {
 
       {/* Metadata row */}
       <View style={styles.meta}>
-        <View style={[styles.avatar, { backgroundColor: channelColor }]}>
+        <View style={[styles.avatar, { backgroundColor: C.accent }]}>
           <Text style={styles.avatarText}>{channelInitials}</Text>
         </View>
         <View style={styles.info}>
           <Text style={styles.title} numberOfLines={2}>{video.title}</Text>
           <View style={styles.channelRow}>
             <Text style={styles.channel}>{video.channel}</Text>
-            {'verified' in video && video.verified && (
-              <Ionicons name="checkmark-circle" size={13} color={C.dim} style={{ marginLeft: 3 }} />
-            )}
           </View>
           <Text style={styles.stats}>
-            {'views' in video ? `${video.views} views · ${video.timestamp}` : 'Live on YouTube'}
+            {metadata || 'YouTube video'}
           </Text>
         </View>
-        <TouchableOpacity hitSlop={12} style={styles.moreBtn}>
-          <Ionicons name="ellipsis-vertical" size={18} color={C.dim} />
-        </TouchableOpacity>
       </View>
     </TouchableOpacity>
   );
@@ -100,5 +96,4 @@ const styles = StyleSheet.create({
   channelRow: { flexDirection: 'row', alignItems: 'center' },
   channel: { color: C.muted, fontSize: 12 },
   stats: { color: C.dim, fontSize: 12, marginTop: 1 },
-  moreBtn: { paddingLeft: 4, paddingTop: 2 },
 });

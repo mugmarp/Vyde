@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, Dimensions, PanResponder, Animated, Platform, Linking,
+  StyleSheet, Dimensions, Animated, Platform, Linking, Share,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { VideoView, useVideoPlayer } from 'expo-video';
@@ -10,9 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppContext } from '@/context/AppContext';
-import { useAuth } from '@/context/AuthContext';
-import { VIDEOS, MOCK_COMMENTS } from '@/data/mockData';
-import { fetchYouTubeVideo } from '@/api/youtube';
+import { LiveComment, fetchYouTubeComments, fetchYouTubeVideo } from '@/api/youtube';
 
 const C = {
   bg: '#050507', elevated: '#0C0C12', hover: '#161620',
@@ -22,34 +20,6 @@ const C = {
 
 const { width: W, height: H } = Dimensions.get('window');
 const PLAYER_H = Math.round(W * (9 / 16));
-
-// ── Gesture bar overlay ──────────────────────────────────────────────────────
-function GestureBar({ side, value, icon, visible }: { side: 'left' | 'right'; value: number; icon: string; visible: boolean }) {
-  const opacity = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    Animated.timing(opacity, {
-      toValue: visible ? 1 : 0,
-      duration: 180,
-      useNativeDriver: true,
-    }).start();
-  }, [visible]);
-
-  return (
-    <Animated.View style={[gb.wrap, { [side]: 16, opacity }]}>
-      <Ionicons name={icon as any} size={16} color="#fff" style={{ marginBottom: 6 }} />
-      <View style={gb.track}>
-        <View style={[gb.fill, { height: `${Math.round(value * 100)}%` as any }]} />
-      </View>
-    </Animated.View>
-  );
-}
-
-const gb = StyleSheet.create({
-  wrap: { position: 'absolute', top: '50%', marginTop: -55, alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 20, padding: 10, gap: 0 },
-  track: { width: 4, height: 70, backgroundColor: 'rgba(255,255,255,0.25)', borderRadius: 2, overflow: 'hidden', justifyContent: 'flex-end' },
-  fill: { width: '100%', backgroundColor: '#fff', borderRadius: 2 },
-});
 
 // ── Seek ripple ───────────────────────────────────────────────────────────────
 function SeekRipple({ side, onAnim }: { side: 'left' | 'right'; onAnim: boolean }) {
@@ -82,59 +52,90 @@ const rp = StyleSheet.create({
 
 // ── Main player screen ────────────────────────────────────────────────────────
 export default function PlayerScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, title: routeTitle, channel: routeChannel, thumbnail: routeThumbnail } =
+    useLocalSearchParams<{ id: string; title?: string; channel?: string; thumbnail?: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { likedVideoIds, savedVideoIds, toggleLike, toggleSave, recordHistory } = useAppContext();
-  const { isSignedIn } = useAuth();
-
-  const mockVideo = VIDEOS.find(v => v.id === id);
+  const videoId = Array.isArray(id) ? id[0] : id;
   const [liveVideo, setLiveVideo] = useState<Awaited<ReturnType<typeof fetchYouTubeVideo>> | null>(null);
-  const video = mockVideo ?? VIDEOS[0];
-  const isLiveVideo = !mockVideo;
-  const upNext = VIDEOS.filter(v => v.id !== video.id).slice(0, 4);
+  const [comments, setComments] = useState<LiveComment[]>([]);
+  const [commentCount, setCommentCount] = useState<number | null>(null);
+  const [commentsError, setCommentsError] = useState<string | null>(null);
+  const [candidateIndex, setCandidateIndex] = useState(0);
+  const upNext = liveVideo?.relatedVideos ?? [];
 
-  const [playing, setPlaying] = useState(!isLiveVideo);
-  const [progress, setProgress] = useState(0.24);
-  const [brightness, setBrightness] = useState(0.7);
-  const [volume, setVolume] = useState(0.8);
-  const [showBright, setShowBright] = useState(false);
-  const [showVol, setShowVol] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const [progress, setProgress] = useState(0);
   const [showControls, setShowControls] = useState(true);
-  const [seekLeft, setSeekLeft] = useState(false);
-  const [seekRight, setSeekRight] = useState(false);
   const [seekLeftKey, setSeekLeftKey] = useState(0);
   const [seekRightKey, setSeekRightKey] = useState(0);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [posterVisible, setPosterVisible] = useState(true);
-  const isLiked = likedVideoIds.includes(video.id);
-  const isSaved = savedVideoIds.includes(video.id);
-  const playbackSource = Platform.OS !== 'web' && isLiveVideo
-    ? liveVideo?.nativePlayback ?? null
-    : null;
+  const isLiked = !!videoId && likedVideoIds.includes(videoId);
+  const isSaved = !!videoId && savedVideoIds.includes(videoId);
+  const playbackCandidates = (liveVideo?.nativePlaybackCandidates ?? []).filter(candidate => {
+    try {
+      return new URL(candidate.uri).protocol === 'https:' &&
+        (candidate.contentType === 'hls' || candidate.contentType === 'progressive');
+    } catch {
+      return false;
+    }
+  });
+  const playbackSource = Platform.OS !== 'web' ? playbackCandidates[candidateIndex] ?? null : null;
   const showNativeVideo = Platform.OS !== 'web' && !!playbackSource && !playbackError;
-  const nativePlayer = useVideoPlayer(playbackSource, player => {
+  const nativePlayer = useVideoPlayer(
+    playbackSource ? { uri: playbackSource.uri, contentType: playbackSource.contentType } : null,
+    player => {
     player.audioMixingMode = 'auto';
     player.staysActiveInBackground = false;
     player.showNowPlayingNotification = false;
     player.timeUpdateEventInterval = 0.25;
-  });
+    },
+  );
 
   useEffect(() => {
-    if (!isLiveVideo || !id) return;
+    if (!videoId || !/^[\w-]{6,20}$/.test(videoId)) {
+      setPlaybackError('This video link is invalid.');
+      return;
+    }
+    let active = true;
+    setLiveVideo(null);
+    setComments([]);
+    setCommentCount(null);
+    setCommentsError(null);
+    setCandidateIndex(0);
     setPlaybackError(null);
     setPosterVisible(true);
-    fetchYouTubeVideo(id)
-      .then(setLiveVideo)
+    fetchYouTubeVideo(videoId)
+      .then(details => {
+        if (active) setLiveVideo(details);
+      })
       .catch(error => {
-        setPlaybackError(error instanceof Error ? error.message : 'YouTube video details could not be loaded.');
+        if (active) setPlaybackError(error instanceof Error ? error.message : 'Video details could not be loaded.');
       });
-  }, [id, isLiveVideo]);
+    fetchYouTubeComments(videoId)
+      .then(result => {
+        if (!active) return;
+        setComments(result.items);
+        setCommentCount(result.commentCount);
+      })
+      .catch(error => {
+        if (active) setCommentsError(error instanceof Error ? error.message : 'Comments could not be loaded.');
+      });
+    return () => { active = false; };
+  }, [videoId]);
 
   useEffect(() => {
     const statusSubscription = nativePlayer.addListener('statusChange', event => {
       if (event.status === 'error') {
-        setPlaybackError(event.error?.message ?? 'Native playback could not start.');
+        if (candidateIndex + 1 < playbackCandidates.length) {
+          setCandidateIndex(index => index + 1);
+          setPlaybackError(null);
+          setPosterVisible(true);
+        } else {
+          setPlaybackError(event.error?.message ?? 'Native playback could not start.');
+        }
         setPlaying(false);
       }
     });
@@ -151,10 +152,9 @@ export default function PlayerScreen() {
       playingSubscription.remove();
       timeSubscription.remove();
     };
-  }, [nativePlayer]);
+  }, [nativePlayer, candidateIndex, playbackCandidates.length]);
 
   useEffect(() => {
-    if (!isLiveVideo) return;
     setProgress(0);
     setPlaying(false);
     setPlaybackError(null);
@@ -162,25 +162,18 @@ export default function PlayerScreen() {
   }, [playbackSource?.uri]);
 
   useEffect(() => {
-    recordHistory(video.id, {
-      title: liveVideo?.title ?? video.title,
-      channel: liveVideo?.channel ?? video.channel,
-      thumbnail: liveVideo?.thumbnail ?? video.thumbnail,
-    }, isLiveVideo ? 0 : progress);
-  }, [video.id, liveVideo?.title]);
+    const title = liveVideo?.title ?? routeTitle;
+    if (!videoId || !title) return;
+    recordHistory(videoId, {
+      title,
+      channel: liveVideo?.channel ?? routeChannel ?? '',
+      thumbnail: liveVideo?.thumbnail ?? routeThumbnail ?? '',
+    }, 0);
+  }, [videoId, liveVideo?.title, routeTitle]);
 
   const controlsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const playingRef = useRef(playing);
   playingRef.current = playing;
-
-  // Auto-advance progress when playing
-  useEffect(() => {
-    if (!playing || showNativeVideo) return;
-    const iv = setInterval(() => {
-      setProgress(p => Math.min(p + 0.001, 1));
-    }, 200);
-    return () => clearInterval(iv);
-  }, [playing, showNativeVideo]);
 
   // Auto-hide controls
   const resetControlsTimer = useCallback(() => {
@@ -193,37 +186,9 @@ export default function PlayerScreen() {
 
   useEffect(() => { resetControlsTimer(); }, []);
 
-  // PanResponder for brightness/volume gestures
-  const panRef = useRef<{ startX: number; startY: number; side: 'left' | 'right' | null }>({
-    startX: 0, startY: 0, side: null,
-  });
-
-  const panResponder = PanResponder.create({
-    onStartShouldSetPanResponder: () => true,
-    onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dy) > 8,
-    onPanResponderGrant: (e) => {
-      panRef.current.startX = e.nativeEvent.locationX;
-      panRef.current.startY = e.nativeEvent.locationY;
-      panRef.current.side = e.nativeEvent.locationX < W / 2 ? 'left' : 'right';
-      if (panRef.current.side === 'left') setShowBright(true);
-      else setShowVol(true);
-    },
-    onPanResponderMove: (_, g) => {
-      const delta = -g.dy / PLAYER_H;
-      if (panRef.current.side === 'left') {
-        setBrightness(b => Math.max(0, Math.min(1, b + delta)));
-      } else {
-        setVolume(v => Math.max(0, Math.min(1, v + delta)));
-      }
-    },
-    onPanResponderRelease: () => {
-      setTimeout(() => { setShowBright(false); setShowVol(false); }, 800);
-      panRef.current.side = null;
-    },
-  });
-
   // Seek bar scrub
   const handleSeekBarPress = (e: any) => {
+    if (!showNativeVideo || nativePlayer.duration <= 0) return;
     const x = e.nativeEvent.locationX;
     const barWidth = W;
     const nextProgress = Math.max(0, Math.min(1, x / barWidth));
@@ -234,7 +199,7 @@ export default function PlayerScreen() {
   };
 
   const formatTime = (p: number) => {
-    const totalSecs = Math.round(p * (showNativeVideo && nativePlayer.duration > 0 ? nativePlayer.duration : 1371));
+    const totalSecs = Math.round(p * (showNativeVideo && nativePlayer.duration > 0 ? nativePlayer.duration : 0));
     const m = Math.floor(totalSecs / 60);
     const s = totalSecs % 60;
     return `${m}:${s.toString().padStart(2, '0')}`;
@@ -243,9 +208,7 @@ export default function PlayerScreen() {
   const seekBy = (seconds: number) => {
     if (showNativeVideo) {
       nativePlayer.seekBy(seconds);
-      return;
     }
-    setProgress(p => Math.max(0, Math.min(1, p + seconds / 1371)));
   };
 
   const togglePlayback = () => {
@@ -255,20 +218,16 @@ export default function PlayerScreen() {
       resetControlsTimer();
       return;
     }
-    if (isLiveVideo) {
-      void Linking.openURL(watchUrl);
-      return;
-    }
-    setPlaying(p => !p);
-    resetControlsTimer();
+    void Linking.openURL(watchUrl);
   };
 
   const topPad = Platform.OS === 'web' ? 10 : insets.top;
-  const displayTitle = liveVideo?.title ?? video.title;
-  const displayChannel = liveVideo?.channel ?? video.channel;
-  const displayDescription = liveVideo?.description ?? video.description;
-  const displayThumbnail = liveVideo?.thumbnail ?? video.thumbnail;
-  const watchUrl = liveVideo?.watchUrl ?? `https://www.youtube.com/watch?v=${video.id}`;
+  const displayTitle = liveVideo?.title ?? routeTitle ?? 'Loading video…';
+  const displayChannel = liveVideo?.channel ?? routeChannel ?? '';
+  const displayDescription = liveVideo?.description ?? '';
+  const displayThumbnail = liveVideo?.thumbnail ?? routeThumbnail ?? '';
+  const watchUrl = liveVideo?.watchUrl ?? (videoId && /^[\w-]{6,20}$/.test(videoId) ? `https://www.youtube.com/watch?v=${videoId}` : 'https://www.youtube.com');
+  const channelInitials = displayChannel.trim().slice(0, 2).toUpperCase() || 'YT';
 
   return (
     <View style={ps.root}>
@@ -276,7 +235,6 @@ export default function PlayerScreen() {
       <TouchableOpacity
         activeOpacity={1}
         onPress={resetControlsTimer}
-        {...panResponder.panHandlers}
       >
         <View style={ps.player}>
           {showNativeVideo && (
@@ -289,7 +247,7 @@ export default function PlayerScreen() {
             />
           )}
           {(!showNativeVideo || posterVisible) && (
-            <Image source={displayThumbnail} style={ps.poster} contentFit="cover" />
+            <Image source={displayThumbnail ? { uri: displayThumbnail } : undefined} style={ps.poster} contentFit="cover" />
           )}
           <LinearGradient colors={['rgba(0,0,0,0.7)', 'transparent', 'transparent', 'rgba(0,0,0,0.85)']} style={StyleSheet.absoluteFill} />
 
@@ -303,19 +261,13 @@ export default function PlayerScreen() {
                 <Text style={ps.topTitle} numberOfLines={1}>{displayTitle}</Text>
                 <Text style={ps.topChannel}>{displayChannel}</Text>
               </View>
-              <TouchableOpacity hitSlop={10} style={ps.iconBtn}>
-                <Ionicons name="tv-outline" size={22} color="#fff" />
-              </TouchableOpacity>
-              <TouchableOpacity hitSlop={10} style={ps.iconBtn}>
-                <Ionicons name="settings-outline" size={22} color="#fff" />
-              </TouchableOpacity>
             </View>
           )}
 
           {/* Centre play/pause */}
           {showControls && (
             <View style={ps.centreControls}>
-              {isLiveVideo && !showNativeVideo ? (
+              {!showNativeVideo ? (
                 <TouchableOpacity
                   style={ps.watchButton}
                   onPress={togglePlayback}
@@ -323,7 +275,7 @@ export default function PlayerScreen() {
                 >
                   <Ionicons name="logo-youtube" size={22} color="#fff" />
                   <Text style={ps.watchButtonText}>
-                    {playbackError ? 'Watch on YouTube' : 'Native playback unavailable'}
+                    {playbackError ? 'Watch on YouTube' : 'Open on YouTube'}
                   </Text>
                 </TouchableOpacity>
               ) : (
@@ -342,16 +294,12 @@ export default function PlayerScreen() {
             </View>
           )}
 
-          {/* Gesture overlays */}
-          <GestureBar side="left"  value={brightness} icon="sunny-outline"  visible={showBright} />
-          <GestureBar side="right" value={volume}     icon="volume-medium-outline" visible={showVol} />
-
           {/* Seek ripples */}
           <SeekRipple side="left"  onAnim={seekLeftKey > 0}  key={`sl-${seekLeftKey}`} />
           <SeekRipple side="right" onAnim={seekRightKey > 0} key={`sr-${seekRightKey}`} />
 
           {/* Progress bar */}
-          <View style={ps.seekArea}>
+          {showNativeVideo && <View style={ps.seekArea}>
             <TouchableOpacity onPress={handleSeekBarPress} activeOpacity={1}>
               <View style={ps.seekTrack}>
                 <View style={[ps.seekFill, { width: `${Math.round(progress * 100)}%` as any }]} />
@@ -360,9 +308,9 @@ export default function PlayerScreen() {
             </TouchableOpacity>
             <View style={ps.timeRow}>
               <Text style={ps.timeText}>{formatTime(progress)}</Text>
-              <Text style={ps.timeText}>{liveVideo?.duration ?? video.duration}</Text>
+              <Text style={ps.timeText}>{liveVideo?.duration ?? '--:--'}</Text>
             </View>
-          </View>
+          </View>}
         </View>
       </TouchableOpacity>
 
@@ -372,17 +320,17 @@ export default function PlayerScreen() {
         <View style={ps.infoBlock}>
           <Text style={ps.videoTitle}>{displayTitle}</Text>
           <View style={ps.channelRow}>
-            <View style={[ps.chanAvatar, { backgroundColor: video.channelColor }]}>
-              <Text style={ps.chanAvatarText}>{video.channelInitials}</Text>
+            <View style={[ps.chanAvatar, { backgroundColor: C.accent }]}>
+              <Text style={ps.chanAvatarText}>{channelInitials}</Text>
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={ps.chanName}>{displayChannel}</Text>
+              <Text style={ps.chanName}>{displayChannel || 'YouTube'}</Text>
               <Text style={ps.viewCount}>
-                {liveVideo ? `${Number(liveVideo.views).toLocaleString()} views · Live on YouTube` : `${video.views} views · ${video.timestamp}`}
+                {liveVideo?.views ? `${Number(liveVideo.views).toLocaleString()} views · ${liveVideo.livestream ? 'Live' : liveVideo.publishedAt}` : playbackError ?? 'Loading video details…'}
               </Text>
             </View>
-            <TouchableOpacity style={ps.subBtn} onPress={() => isLiveVideo ? Linking.openURL(watchUrl) : undefined}>
-              <Text style={ps.subBtnText}>{isLiveVideo ? 'Open YouTube' : 'Subscribe'}</Text>
+            <TouchableOpacity style={ps.subBtn} onPress={() => void Linking.openURL(watchUrl)}>
+              <Text style={ps.subBtnText}>Open YouTube</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -390,11 +338,10 @@ export default function PlayerScreen() {
         {/* Action row */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={ps.actions}>
           {[
-                { icon: isLiked ? 'heart' : 'heart-outline', label: 'likes' in video ? video.likes : 'Like', color: isLiked ? C.accent : C.muted, onPress: () => toggleLike(video.id) },
-            { icon: 'share-social-outline', label: 'Share', color: C.muted, onPress: () => {} },
-            { icon: isSaved ? 'bookmark' : 'bookmark-outline', label: 'Save', color: isSaved ? C.accent : C.muted, onPress: () => toggleSave(video.id) },
-            { icon: 'cloud-download-outline', label: 'Unavailable', color: C.dim, onPress: undefined, disabled: true },
-            { icon: 'flag-outline', label: 'Report', color: C.dim, onPress: () => {} },
+            { icon: isLiked ? 'heart' : 'heart-outline', label: liveVideo?.likes ? Number(liveVideo.likes).toLocaleString() : 'Like', color: isLiked ? C.accent : C.muted, onPress: () => videoId && toggleLike(videoId) },
+            { icon: 'share-social-outline', label: 'Share', color: C.muted, onPress: () => void Share.share({ message: watchUrl }) },
+            { icon: isSaved ? 'bookmark' : 'bookmark-outline', label: 'Save', color: isSaved ? C.accent : C.muted, onPress: () => videoId && toggleSave(videoId) },
+            { icon: 'cloud-download-outline', label: 'Offline unavailable', color: C.dim, onPress: undefined, disabled: true },
           ].map(action => (
             <TouchableOpacity key={action.label} style={ps.actionBtn} onPress={action.onPress} disabled={action.disabled} activeOpacity={0.7}>
               <View style={ps.actionIconWrap}>
@@ -406,33 +353,31 @@ export default function PlayerScreen() {
         </ScrollView>
 
         {/* Description */}
-        <View style={ps.descBlock}>
+        {displayDescription ? <View style={ps.descBlock}>
           <Text style={ps.descText} numberOfLines={3}>{displayDescription}</Text>
-        </View>
+        </View> : null}
 
         {/* Comments */}
         <View style={ps.section}>
-          <Text style={ps.sectionLabel}>Comments  <Text style={{ color: C.dim, fontFamily: 'Outfit_400Regular' }}>{MOCK_COMMENTS.length}K</Text></Text>
-          {MOCK_COMMENTS.map(c => (
-            <View key={c.id} style={ps.comment}>
-              <View style={[ps.commentAvatar, { backgroundColor: c.color }]}>
-                <Text style={ps.commentAvatarText}>{c.initials}</Text>
-              </View>
+          <Text style={ps.sectionLabel}>Comments{commentCount !== null ? ` · ${commentCount.toLocaleString()}` : ''}</Text>
+          {commentsError ? <Text style={ps.commentText}>{commentsError}</Text> : null}
+          {!commentsError && comments.length === 0 && <Text style={ps.commentText}>{liveVideo ? 'No comments were returned.' : 'Loading comments…'}</Text>}
+          {comments.map(comment => (
+            <View key={comment.id} style={ps.comment}>
+              {comment.thumbnail ? (
+                <Image source={{ uri: comment.thumbnail }} style={ps.commentAvatar} contentFit="cover" />
+              ) : (
+                <View style={[ps.commentAvatar, { backgroundColor: C.elevated }]}>
+                  <Text style={ps.commentAvatarText}>{comment.author.trim().slice(0, 1).toUpperCase() || '?'}</Text>
+                </View>
+              )}
               <View style={{ flex: 1 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Text style={ps.commentUser}>{c.user}</Text>
-                  <Text style={ps.commentTime}>{c.time}</Text>
+                  <Text style={ps.commentUser}>{comment.author}</Text>
+                  <Text style={ps.commentTime}>{comment.published}</Text>
                 </View>
-                <Text style={ps.commentText}>{c.text}</Text>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16, marginTop: 8 }}>
-                  <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                    <Ionicons name="heart-outline" size={14} color={C.dim} />
-                    <Text style={{ color: C.dim, fontSize: 12 }}>{c.likes.toLocaleString()}</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity>
-                    <Text style={{ color: C.dim, fontSize: 12 }}>Reply</Text>
-                  </TouchableOpacity>
-                </View>
+                <Text style={ps.commentText}>{comment.text}</Text>
+                {comment.likes > 0 && <Text style={{ color: C.dim, fontSize: 12, marginTop: 8 }}>{comment.likes.toLocaleString()} likes</Text>}
               </View>
             </View>
           ))}
@@ -442,16 +387,19 @@ export default function PlayerScreen() {
         <View style={ps.section}>
           <Text style={ps.sectionLabel}>Up Next</Text>
           {upNext.map(v => (
-            <TouchableOpacity key={v.id} style={ps.upNextRow} activeOpacity={0.8} onPress={() => router.push({ pathname: '/player', params: { id: v.id } })}>
+            <TouchableOpacity key={v.id} style={ps.upNextRow} activeOpacity={0.8} onPress={() => router.push({
+              pathname: '/player',
+              params: { id: v.id, title: v.title, channel: v.channel, thumbnail: v.thumbnail },
+            })}>
               <View style={ps.upNextThumb}>
-                <Image source={v.thumbnail} style={{ width: '100%', height: '100%' }} contentFit="cover" />
+                <Image source={{ uri: v.thumbnail }} style={{ width: '100%', height: '100%' }} contentFit="cover" />
                 <View style={ps.upNextDur}>
-                  <Text style={{ color: '#fff', fontSize: 10, fontWeight: '600' }}>{v.duration}</Text>
+                  <Text style={{ color: '#fff', fontSize: 10, fontWeight: '600' }}>{v.duration ?? 'Video'}</Text>
                 </View>
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={ps.upNextTitle} numberOfLines={2}>{v.title}</Text>
-                <Text style={ps.upNextMeta}>{v.channel} · {v.views} views</Text>
+                <Text style={ps.upNextMeta}>{v.channel}{v.views ? ` · ${v.views} views` : ''}</Text>
               </View>
             </TouchableOpacity>
           ))}

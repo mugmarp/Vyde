@@ -1,6 +1,6 @@
 # Vyde
 
-Vyde is a dark-first Expo mobile client for discovering and watching YouTube content through official YouTube-supported APIs and links.
+Vyde is a dark-first Expo mobile client for live video discovery through a Piped-compatible provider, with native playback attempts on mobile and YouTube watch-page fallback.
 
 ## Run & Operate
 
@@ -10,44 +10,45 @@ Vyde is a dark-first Expo mobile client for discovering and watching YouTube con
 - `pnpm --filter @workspace/vyde run typecheck` — typecheck the mobile app
 - `pnpm run typecheck` — full workspace typecheck where configured
 - Required mobile env: `EXPO_PUBLIC_DOMAIN` — the Replit domain used to reach the API server
-- The YouTube connection is managed by Replit; do not add API keys to source code or chat.
+- `EXPO_PUBLIC_DOMAIN` routes the mobile client to the Express API.
+- `PIPED_API_BASE_URL` is an optional server-only HTTPS endpoint override. The default is a public third-party instance and is not guaranteed for production use.
 
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript
 - Mobile: Expo, React Native, Expo Router, React Query provider, AsyncStorage
 - API: Express + TypeScript, built with esbuild
-- External data: Replit YouTube connector proxying YouTube Data API v3
+- External data: configurable Piped-compatible API through the Express server
 - No database is currently required by Vyde.
 
 ## Where things live
 
 - `artifacts/vyde/app/` — Expo Router screens and navigation
 - `artifacts/vyde/components/` — shared mobile UI components
-- `artifacts/vyde/context/` — local auth, likes, saves, playlists, and download state
+- `artifacts/vyde/context/` — device-local likes, saves, playlists, and watch history
 - `artifacts/vyde/api/youtube.ts` — mobile client for the YouTube API proxy
 - `artifacts/vyde/constants/colors.ts` — Vyde visual tokens
-- `artifacts/api-server/src/routes/youtube.ts` — server-side YouTube connector routes
+- `artifacts/api-server/src/routes/youtube.ts` — server-side Piped adapter routes
 - `artifacts/api-server/src/routes/index.ts` — API route registration
 - `artifacts/mockup-sandbox/` — original visual design/mockup artifact
 - `docs/VYDE_ARCHITECTURE.md` — full product description, architecture, data flows, and limitations
 
 ## Architecture decisions
 
-- YouTube requests go through the Express server rather than directly from the mobile client, keeping connector access server-side.
-- Vyde uses official YouTube metadata APIs and official YouTube watch links; it does not extract streams or bypass YouTube playback controls.
-- Local-only preferences and UI state use AsyncStorage until a real per-user account architecture is implemented.
-- Native mobile discovery uses anonymous Innertube; the web preview uses the API proxy because YouTube blocks browser CORS. All provider failures must remain visible to the user.
-- The current YouTube connection authorizes the Replit environment, not automatically every end-user of a future published multi-user app.
+- Video discovery and metadata go through the Express server; the app does not call the provider directly.
+- Native Android/iOS playback uses only validated HTTPS HLS or progressive MP4 candidates returned by the Piped adapter; the UI never renders or logs candidate URLs.
+- Vyde does not decipher signature-cipher formats, generate PoTokens, scrape player JavaScript, or build an offline downloader. If native playback fails, the app opens the official YouTube watch page.
+- Local likes, saves, playlists, and watch history are device-only and are not YouTube account data.
+- Provider errors remain visible; the app must not replace them with mock videos.
+- The default Piped public instance is a third-party dependency without an availability or privacy guarantee. Review and replace it before production if needed.
 
 ## Product
 
-- Dark-first Home feed for popular YouTube videos
+- Dark-first Home feed for live videos from the configured provider
 - Search and Explore discovery
-- Video detail/player surface with official YouTube handoff for live results
-- Library, saved items, playlists, profile, settings, and download-manager UI
-- Local persistence for prototype preferences and library state
-- Planned authenticated YouTube features where the official API and scopes permit them
+- Video detail/player surface with native playback attempt and YouTube watch-page fallback
+- Library, device-local playlists, profile, and settings; offline YouTube downloads are unavailable
+- Local persistence for device-owned likes, saves, playlists, and watch history
 
 ## User preferences
 
@@ -55,9 +56,9 @@ None recorded.
 
 ## Gotchas
 
-- YouTube Data API quota errors are expected operational failures; preserve the visible retry/error state rather than silently substituting mock feed data.
-- The official YouTube Data API does not expose third-party downloadable media files or stream URLs. The download UI is not a production offline YouTube downloader.
-- The current sign-in and some library/comment content are prototype/local state, not proof of per-user YouTube synchronization.
+- Piped public instances can rate-limit or become unavailable; preserve visible retry/error states rather than silently substituting mock feed data.
+- Do not present local likes, saves, playlists, or history as YouTube account data.
+- Keep YouTube downloads disabled and describe account sync as unavailable until those capabilities are separately implemented and reviewed.
 - Restart the API workflow after changing server routes or server dependencies. Expo normally hot reloads source changes.
 
 ## Pointers

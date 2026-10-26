@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View, Text, FlatList, ScrollView,
   TouchableOpacity, StyleSheet, Platform, StatusBar, ActivityIndicator,
@@ -7,10 +7,9 @@ import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useAuth } from '@/context/AuthContext';
+import { useAppContext, LocalHistoryItem } from '@/context/AppContext';
 import VideoCard from '@/components/VideoCard';
-import { VIDEOS, CATEGORIES, CONTINUE_WATCHING, CHANNELS } from '@/data/mockData';
-import { LiveVideo, fetchLiveFeed } from '@/api/youtube';
+import { LiveVideo, fetchLiveFeed, searchYouTube } from '@/api/youtube';
 
 const C = {
   bg: '#050507', elevated: '#0C0C12', hover: '#161620',
@@ -19,26 +18,21 @@ const C = {
 };
 
 // ── Continue Watching card ──────────────────────────────────────────────────
-function ContinueCard({ videoId, progress }: { videoId: string; progress: number }) {
-  const video = VIDEOS.find(v => v.id === videoId);
+function ContinueCard({ item }: { item: LocalHistoryItem }) {
   const router = useRouter();
-  if (!video) return null;
   return (
     <TouchableOpacity
       style={cw.card}
       activeOpacity={0.85}
-      onPress={() => router.push({ pathname: '/player', params: { id: video.id } })}
+      onPress={() => router.push({ pathname: '/player', params: { id: item.videoId } })}
     >
       <View style={cw.thumbWrap}>
-        <Image source={video.thumbnail} style={cw.thumb} contentFit="cover" />
+        <Image source={item.thumbnail} style={cw.thumb} contentFit="cover" />
         <View style={cw.overlay} />
         <Ionicons name="play-circle" size={32} color="rgba(255,255,255,0.9)" style={cw.playIcon} />
-        <View style={cw.track}>
-          <View style={[cw.fill, { width: `${Math.round(progress * 100)}%` as any }]} />
-        </View>
       </View>
-      <Text style={cw.title} numberOfLines={2}>{video.title}</Text>
-      <Text style={cw.meta}>{video.channel} · {Math.round(progress * 100)}% watched</Text>
+      <Text style={cw.title} numberOfLines={2}>{item.title}</Text>
+      <Text style={cw.meta}>{item.channel} · Recently watched</Text>
     </TouchableOpacity>
   );
 }
@@ -49,96 +43,47 @@ const cw = StyleSheet.create({
   thumb: { width: '100%', height: '100%' },
   overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.18)' },
   playIcon: { position: 'absolute', top: '50%', left: '50%', marginTop: -16, marginLeft: -16 },
-  track: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 3, backgroundColor: 'rgba(255,255,255,0.2)' },
-  fill: { height: 3, backgroundColor: C.accent },
   title: { color: C.text, fontSize: 13, fontWeight: '600', fontFamily: 'Outfit_600SemiBold', marginTop: 8, lineHeight: 18 },
   meta: { color: C.dim, fontSize: 11, marginTop: 3 },
 });
 
-// ── Subscription shelf ──────────────────────────────────────────────────────
-function SubscriptionShelf() {
-  return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 14, paddingVertical: 4, gap: 20 }}>
-      {CHANNELS.map(ch => (
-        <View key={ch.id} style={{ alignItems: 'center', gap: 6 }}>
-          <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: ch.color, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: C.accent }}>
-            <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>{ch.initials}</Text>
-          </View>
-          <Text style={{ color: C.muted, fontSize: 11, maxWidth: 52 }} numberOfLines={1}>{ch.name.split(' ')[0]}</Text>
-        </View>
-      ))}
-    </ScrollView>
-  );
-}
-
 // ── Main screen ─────────────────────────────────────────────────────────────
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
-  const { isSignedIn, user } = useAuth();
+  const { history } = useAppContext();
   const router = useRouter();
   const [selectedCat, setSelectedCat] = useState('All');
-  const [bannerDismissed, setBannerDismissed] = useState(false);
   const [liveVideos, setLiveVideos] = useState<LiveVideo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [retryKey, setRetryKey] = useState(0);
+  const categories = ['All', 'Music', 'Gaming', 'Technology', 'Science', 'Sports', 'News'];
 
-  const loadFeed = async () => {
+  useEffect(() => {
+    let active = true;
     setLoading(true);
     setError(null);
-    try {
-      const result = await fetchLiveFeed();
-      setLiveVideos(result.items);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not load YouTube.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  React.useEffect(() => {
-    loadFeed();
-  }, []);
-
-  const cats = CATEGORIES.filter(c => isSignedIn || c !== 'For You');
-
-  const filteredVideos = liveVideos;
+    const request = selectedCat === 'All' ? fetchLiveFeed() : searchYouTube(selectedCat);
+    request.then(result => {
+      if (active) setLiveVideos(result.items);
+    }).catch(err => {
+      if (active) setError(err instanceof Error ? err.message : 'Could not load videos.');
+    }).finally(() => {
+      if (active) setLoading(false);
+    });
+    return () => { active = false; };
+  }, [selectedCat, retryKey]);
 
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
 
   const ListHeader = (
     <View>
-      {/* Sign-in banner */}
-      {!isSignedIn && !bannerDismissed && (
-        <View style={s.banner}>
-          <Ionicons name="sparkles" size={20} color={C.accent} style={{ marginRight: 10 }} />
-          <View style={{ flex: 1 }}>
-            <Text style={s.bannerTitle}>Personalise your feed</Text>
-            <Text style={s.bannerSub}>Sign in to get recommendations</Text>
-          </View>
-          <TouchableOpacity style={s.bannerBtn} onPress={() => router.push('/sign-in')}>
-            <Text style={s.bannerBtnText}>Sign in</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => setBannerDismissed(true)} hitSlop={12} style={{ marginLeft: 8 }}>
-            <Ionicons name="close" size={18} color={C.dim} />
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {/* Subscriptions shelf (signed in) */}
-      {isSignedIn && (
+      {history.length > 0 && (
         <View style={s.section}>
-          <Text style={s.sectionLabel}>Subscriptions</Text>
-          <SubscriptionShelf />
-        </View>
-      )}
-
-      {/* Continue Watching (signed in) */}
-      {isSignedIn && (
-        <View style={s.section}>
-          <Text style={s.sectionLabel}>Continue Watching</Text>
+          <Text style={s.sectionLabel}>Recently watched on this device</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 14 }}>
-            {CONTINUE_WATCHING.map(cw => (
-              <ContinueCard key={cw.videoId} videoId={cw.videoId} progress={cw.progress} />
+            {history.slice(0, 8).map(item => (
+              <ContinueCard key={item.videoId} item={item} />
             ))}
           </ScrollView>
         </View>
@@ -146,7 +91,7 @@ export default function HomeScreen() {
 
       {/* Category chips */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 14, paddingVertical: 10, gap: 8 }}>
-        {cats.map(cat => (
+        {categories.map(cat => (
           <TouchableOpacity
             key={cat}
             style={[s.chip, selectedCat === cat && s.chipActive]}
@@ -167,7 +112,7 @@ export default function HomeScreen() {
           <Ionicons name="cloud-offline-outline" size={32} color={C.dim} />
           <Text style={s.stateTitle}>YouTube couldn’t be reached</Text>
           <Text style={s.stateText}>{error}</Text>
-          <TouchableOpacity style={s.retryBtn} onPress={loadFeed}>
+          <TouchableOpacity style={s.retryBtn} onPress={() => setRetryKey(key => key + 1)}>
             <Text style={s.retryText}>Try again</Text>
           </TouchableOpacity>
         </View>
@@ -176,7 +121,7 @@ export default function HomeScreen() {
         <View style={s.state}>
           <Ionicons name="videocam-off-outline" size={32} color={C.dim} />
           <Text style={s.stateTitle}>No videos found</Text>
-          <Text style={s.stateText}>Try exploring YouTube from the search tab.</Text>
+          <Text style={s.stateText}>The provider returned no videos for this category.</Text>
         </View>
       )}
     </View>
@@ -193,19 +138,14 @@ export default function HomeScreen() {
           <TouchableOpacity style={s.iconBtn} hitSlop={8} onPress={() => router.push('/(tabs)/explore')}>
             <Ionicons name="search-outline" size={23} color={C.text} />
           </TouchableOpacity>
-          <TouchableOpacity style={s.iconBtn} hitSlop={8}>
-            <Ionicons name="notifications-outline" size={23} color={C.text} />
+          <TouchableOpacity style={s.iconBtn} hitSlop={8} onPress={() => router.push('/(tabs)/profile')}>
+            <Ionicons name="person-circle-outline" size={24} color={C.text} />
           </TouchableOpacity>
-          {isSignedIn && (
-            <TouchableOpacity style={[s.userAvatar, { backgroundColor: C.accent }]} onPress={() => router.push('/(tabs)/profile')}>
-              <Text style={s.userAvatarText}>{user?.initials}</Text>
-            </TouchableOpacity>
-          )}
         </View>
       </View>
 
       <FlatList
-        data={loading || error ? [] : filteredVideos}
+        data={loading || error ? [] : liveVideos}
         keyExtractor={v => v.id}
         renderItem={({ item }) => <VideoCard video={item} />}
         ListHeaderComponent={ListHeader}

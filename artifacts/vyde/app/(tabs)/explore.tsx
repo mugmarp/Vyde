@@ -4,13 +4,10 @@ import {
   FlatList, StyleSheet, Platform,
   ActivityIndicator,
 } from 'react-native';
-import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import { TRENDING_SEARCHES, EXPLORE_CATEGORIES } from '@/data/mockData';
 import VideoCard from '@/components/VideoCard';
-import { LiveVideo, searchYouTube } from '@/api/youtube';
+import { LiveVideo, fetchLiveFeed, searchYouTube } from '@/api/youtube';
 
 const C = {
   bg: '#050507', elevated: '#0C0C12', hover: '#161620',
@@ -18,26 +15,30 @@ const C = {
   accent: '#E84A27', border: '#1F1F2E', borderLight: '#2A2A3D',
 };
 
-const CATEGORY_THUMBNAILS: Record<string, number> = {
-  gaming:  require('../../assets/images/thumb-gaming.jpg'),
-  science: require('../../assets/images/thumb-space.jpg'),
-  tech:    require('../../assets/images/thumb-tech.jpg'),
-  travel:  require('../../assets/images/thumb-nature.jpg'),
-  music:   require('../../assets/images/thumb-space.jpg'),
-  sports:  require('../../assets/images/thumb-gaming.jpg'),
-  news:    require('../../assets/images/thumb-city.jpg'),
-  comedy:  require('../../assets/images/thumb-city.jpg'),
-};
-
 export default function ExploreScreen() {
   const insets = useSafeAreaInsets();
-  const router = useRouter();
   const [query, setQuery] = useState('');
   const [focused, setFocused] = useState(false);
   const [results, setResults] = useState<LiveVideo[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [trendingVideos, setTrendingVideos] = useState<LiveVideo[]>([]);
+  const [trendingLoading, setTrendingLoading] = useState(true);
+  const [trendingError, setTrendingError] = useState<string | null>(null);
+  const categories = ['Music', 'Gaming', 'Technology', 'Science', 'Travel', 'Sports', 'News', 'Comedy'];
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
+
+  useEffect(() => {
+    let active = true;
+    fetchLiveFeed().then(response => {
+      if (active) setTrendingVideos(response.items);
+    }).catch(err => {
+      if (active) setTrendingError(err instanceof Error ? err.message : 'Could not load trending videos.');
+    }).finally(() => {
+      if (active) setTrendingLoading(false);
+    });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     if (query.trim().length < 2) {
@@ -110,40 +111,29 @@ export default function ExploreScreen() {
       ) : (
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
 
-          {/* Trending searches */}
           <View style={s.section}>
-            <Text style={s.sectionLabel}>Trending</Text>
-            {TRENDING_SEARCHES.map((term, i) => (
-              <TouchableOpacity
-                key={i}
-                style={s.trendRow}
-                onPress={() => setQuery(term)}
-                activeOpacity={0.7}
-              >
-                <View style={s.trendIcon}>
-                  <Ionicons name="trending-up" size={16} color={C.accent} />
-                </View>
-                <Text style={s.trendText}>{term}</Text>
-                <Ionicons name="arrow-forward-outline" size={16} color={C.dim} />
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          {/* Categories grid */}
-          <View style={s.section}>
-            <Text style={s.sectionLabel}>Browse Categories</Text>
-            <View style={s.grid}>
-              {EXPLORE_CATEGORIES.map(cat => (
-                <TouchableOpacity key={cat.id} style={s.catCard} activeOpacity={0.82} onPress={() => setQuery(cat.label)}>
-                  <Image source={CATEGORY_THUMBNAILS[cat.id]} style={s.catImage} contentFit="cover" />
-                  <View style={[s.catOverlay, { backgroundColor: cat.color + 'CC' }]} />
-                  <View style={s.catContent}>
-                    <Ionicons name={cat.icon as any} size={22} color="#fff" />
-                    <Text style={s.catLabel}>{cat.label}</Text>
-                  </View>
+            <Text style={s.sectionLabel}>Browse categories</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 18 }}>
+              {categories.map(category => (
+                <TouchableOpacity key={category} style={s.categoryChip} onPress={() => setQuery(category)}>
+                  <Text style={s.categoryChipText}>{category}</Text>
                 </TouchableOpacity>
               ))}
-            </View>
+            </ScrollView>
+            <Text style={s.sectionLabel}>Popular right now</Text>
+            {trendingLoading && <View style={s.searchState}><ActivityIndicator color={C.accent} /><Text style={s.emptyText}>Loading live videos…</Text></View>}
+            {!trendingLoading && trendingError && (
+              <View style={s.searchState}>
+                <Ionicons name="cloud-offline-outline" size={32} color={C.dim} />
+                <Text style={s.emptyText}>{trendingError}</Text>
+              </View>
+            )}
+            {!trendingLoading && !trendingError && trendingVideos.length === 0 && (
+              <View style={s.emptyWrap}><Text style={s.emptyText}>No trending videos were returned.</Text></View>
+            )}
+            {!trendingLoading && !trendingError && trendingVideos.map(video => (
+              <VideoCard key={video.id} video={video} />
+            ))}
           </View>
         </ScrollView>
       )}
@@ -171,6 +161,8 @@ const s = StyleSheet.create({
   },
   section: { paddingTop: 24, paddingHorizontal: 14 },
   sectionLabel: { color: C.text, fontSize: 16, fontFamily: 'Outfit_700Bold', marginBottom: 14 },
+  categoryChip: { paddingHorizontal: 14, paddingVertical: 8, backgroundColor: C.elevated, borderRadius: 18, borderWidth: 1, borderColor: C.borderLight },
+  categoryChipText: { color: C.muted, fontSize: 13, fontFamily: 'Outfit_500Medium' },
   trendRow: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border,
