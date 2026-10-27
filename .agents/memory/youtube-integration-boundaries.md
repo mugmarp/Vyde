@@ -3,20 +3,20 @@ name: YouTube integration boundaries
 description: Durable constraints for Vyde's official YouTube integration and production claims.
 ---
 
-Vyde must use official YouTube-supported APIs and playback paths. YouTube Data API responses provide metadata and selected account operations, but do not provide third-party stream URLs or downloadable video files.
+Vyde currently uses a configurable Piped-compatible server adapter for anonymous discovery, details, comments, and native playback candidates. The default endpoint is a third-party public instance, not an availability commitment or policy approval. It can observe forwarded search terms and video IDs.
 
-**Why:** The connected API can return quota/auth failures, and presenting extracted or permanently downloadable YouTube media as implemented would be misleading and potentially violate platform rules.
+**Why:** The user wants real client-style YouTube browsing and video access rather than seeded demo content. A public provider demonstrates that path but has independent privacy, reliability, and policy risks.
 
-**How to apply:** Keep quota/auth failures visible, use official watch/playback handoffs, and do not call the download manager a production YouTube downloader unless an officially supported offline capability is added.
+**How to apply:** Keep the provider replaceable, surface failures without fake data, review operator authorization, terms, privacy, and uptime before release, and never send user credentials to the anonymous provider.
 
-Vyde's agreed hybrid boundary is: anonymous Innertube for native discovery and metadata, local-first on-device state for Vyde-owned history/playlists/saves, and a separate official OAuth/Data API bridge for supported YouTube account operations.
+Native playback accepts only HTTPS HLS candidates or progressive MP4 candidates that the provider marks as containing audio. Vyde does not decipher signatures/ciphers, fetch player JavaScript, generate PoTokens, or combine separate audio and video tracks; it falls back to the official YouTube watch page when needed.
 
-**Why:** Anonymous discovery and user-account synchronization have different authentication, quota, and stability properties; coupling them makes provider failures and policy boundaries harder to control.
+**Why:** Those extraction paths and playback candidates are not yet confirmed as reliable, device-compatible, or authorized for this app.
 
-**How to apply:** Keep provider adapters separate. Do not pass OAuth tokens into anonymous Innertube requests, and do not present local Vyde state as synchronized YouTube account data.
+**How to apply:** Keep candidate URIs out of UI, logs, and persistent state. Keep background playback, now-playing controls, caching, and downloads disabled until physical-device validation and a separate policy decision are complete.
 
-Native playback is intentionally opportunistic: accept only already-directly-playable HLS or progressive MP4-with-audio sources, reject ciphered formats, and fall back to the official YouTube watch destination when the player response or native player cannot play.
+Likes, saves, playlists, and history are device-local; YouTube account sync is not implemented.
 
-**Why:** Anonymous Innertube player responses can be unplayable or require signature/PoToken handling that Vyde does not implement or want to maintain.
+**Why:** Local Vyde state and YouTube account data have different ownership and authentication boundaries.
 
-**How to apply:** Keep background playback, now-playing controls, media caching, and offline media disabled until device validation and a separate policy decision are complete.
+**How to apply:** Do not describe local collections as YouTube-synced, and keep any future OAuth account connection separate from anonymous discovery.

@@ -1,1 +1,1 @@
-- [YouTube integration boundaries](youtube-integration-boundaries.md) — official APIs support metadata and permitted account operations, not third-party stream extraction or permanent offline media.
+- [YouTube integration boundaries](youtube-integration-boundaries.md) — Vyde uses a replaceable Piped-compatible server for anonymous content; it is not a reliability or policy guarantee.

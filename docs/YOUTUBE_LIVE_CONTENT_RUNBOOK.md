@@ -8,6 +8,7 @@ Vyde uses an Express adapter to normalize live discovery and video data from a c
 - Override: set `PIPED_API_BASE_URL` on the API server to another HTTPS Piped-compatible endpoint.
 - The default public instance returned live data during implementation, but it is a third-party service with no availability guarantee. It can change, rate-limit, or stop responding. Do not treat it as a production commitment.
 - The server exposes `/api/youtube/feed`, `/api/youtube/search`, `/api/youtube/videos/:id`, and `/api/youtube/comments/:id`.
+- Thumbnail images use YouTube's public `i.ytimg.com` host, constructed from validated video IDs; these are separate from playback candidates.
 - Home, Explore, comments, video details, and related videos use upstream results. Provider errors and empty results remain visible; the app does not substitute seeded mock content.
 - Local likes, saves, playlists, and watch history are device-only. They are not a YouTube account or synchronization feature.
 

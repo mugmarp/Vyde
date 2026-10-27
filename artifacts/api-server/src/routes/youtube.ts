@@ -76,17 +76,37 @@ function videoIdFromUrl(value: unknown): string {
   return match?.[1] ?? "";
 }
 
+function youtubeThumbnail(id: string) {
+  return `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
+}
+
+function plainText(value: unknown) {
+  if (typeof value !== "string") return "";
+  return value
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/<\/p>/gi, " ")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, "\"")
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function mapVideo(item: PipedItem) {
   const id = videoIdFromUrl(item.url);
   if (!id || item.type !== "stream") return null;
   return {
     id,
     title: item.title ?? "",
-    description: item.shortDescription ?? "",
+    description: plainText(item.shortDescription),
     channel: item.uploaderName ?? "",
     channelId: item.uploaderUrl ?? "",
     publishedAt: item.uploadedDate ?? "",
-    thumbnail: safePlaybackUri(item.thumbnail) ?? "",
+    thumbnail: youtubeThumbnail(id),
     watchUrl: `https://www.youtube.com/watch?v=${id}`,
     views: typeof item.views === "number" ? String(item.views) : "0",
     duration: typeof item.duration === "number" && item.duration >= 0 ? formatDuration(item.duration) : null,
@@ -193,11 +213,11 @@ router.get("/youtube/videos/:id", async (req, res) => {
     res.json({
       id,
       title: video.title,
-      description: video.description ?? "",
+      description: plainText(video.description),
       channel: video.uploader ?? "",
       channelId: video.uploaderUrl ?? "",
       publishedAt: video.uploadDate ?? "",
-      thumbnail: safePlaybackUri(video.thumbnailUrl) ?? "",
+      thumbnail: youtubeThumbnail(id),
       views: typeof video.views === "number" ? String(video.views) : "0",
       likes: typeof video.likes === "number" ? String(video.likes) : "0",
       duration: typeof video.duration === "number" && video.duration >= 0 ? formatDuration(video.duration) : null,
