@@ -27,7 +27,6 @@ function RootLayoutNav() {
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="player" options={{ presentation: 'fullScreenModal', animation: 'fade' }} />
       <Stack.Screen name="settings" options={{ presentation: 'card', animation: 'slide_from_right' }} />
-      <Stack.Screen name="sign-in" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
     </Stack>
   );
 }

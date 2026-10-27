@@ -25,11 +25,15 @@ export default function ExploreScreen() {
   const [trendingVideos, setTrendingVideos] = useState<LiveVideo[]>([]);
   const [trendingLoading, setTrendingLoading] = useState(true);
   const [trendingError, setTrendingError] = useState<string | null>(null);
+  const [trendingRetryKey, setTrendingRetryKey] = useState(0);
+  const [searchRetryKey, setSearchRetryKey] = useState(0);
+  const [resultsQuery, setResultsQuery] = useState('');
   const categories = ['Music', 'Gaming', 'Technology', 'Science', 'Travel', 'Sports', 'News', 'Comedy'];
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
 
   useEffect(() => {
     let active = true;
+    setTrendingError(null);
     fetchLiveFeed().then(response => {
       if (active) setTrendingVideos(response.items);
     }).catch(err => {
@@ -38,28 +42,42 @@ export default function ExploreScreen() {
       if (active) setTrendingLoading(false);
     });
     return () => { active = false; };
-  }, []);
+  }, [trendingRetryKey]);
 
   useEffect(() => {
-    if (query.trim().length < 2) {
+    const normalizedQuery = query.trim();
+    if (normalizedQuery.length < 2) {
       setResults([]);
+      setResultsQuery('');
       setError(null);
+      setLoading(false);
       return;
     }
+    let active = true;
+    setLoading(true);
+    setError(null);
+    setResults([]);
     const timer = setTimeout(async () => {
-      setLoading(true);
-      setError(null);
       try {
-        const response = await searchYouTube(query.trim());
-        setResults(response.items);
+        const response = await searchYouTube(normalizedQuery);
+        if (active) {
+          setResults(response.items);
+          setResultsQuery(normalizedQuery);
+        }
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Could not search YouTube.');
+        if (active) setError(err instanceof Error ? err.message : 'Could not search YouTube.');
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     }, 450);
-    return () => clearTimeout(timer);
-  }, [query]);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [query, searchRetryKey]);
+
+  const normalizedQuery = query.trim();
+  const currentResults = resultsQuery === normalizedQuery ? results : [];
 
   return (
     <View style={[s.root]}>
@@ -89,23 +107,35 @@ export default function ExploreScreen() {
       </View>
 
       {/* Search results */}
-      {query.length > 1 ? (
+      {normalizedQuery.length >= 2 ? (
         <FlatList
-          data={results}
+          data={currentResults}
           keyExtractor={v => v.id}
           renderItem={({ item }) => <VideoCard video={item} />}
           ListHeaderComponent={loading ? (
-            <View style={s.searchState}><ActivityIndicator color={C.accent} /><Text style={s.emptyText}>Searching YouTube…</Text></View>
+            <View style={s.searchState}><ActivityIndicator color={C.accent} /><Text style={s.emptyText}>Searching videos…</Text></View>
           ) : error ? (
-            <View style={s.searchState}><Ionicons name="cloud-offline-outline" size={32} color={C.dim} /><Text style={s.emptyText}>{error}</Text></View>
+            <View style={s.searchState}>
+              <Ionicons name="cloud-offline-outline" size={32} color={C.dim} />
+              <Text style={s.emptyText}>{error}</Text>
+              <TouchableOpacity
+                style={s.retryButton}
+                onPress={() => setSearchRetryKey(key => key + 1)}
+                accessibilityRole="button"
+              >
+                <Text style={s.retryText}>Try again</Text>
+              </TouchableOpacity>
+            </View>
           ) : null}
           ListEmptyComponent={!loading && !error ? (
             <View style={s.emptyWrap}>
               <Ionicons name="search-outline" size={40} color={C.dim} />
-              <Text style={s.emptyText}>No results for "{query}"</Text>
+              <Text style={s.emptyText}>No results for "{normalizedQuery}"</Text>
             </View>
           ) : null}
           contentContainerStyle={{ paddingTop: 12, paddingBottom: 100 }}
+          keyboardDismissMode="on-drag"
+          keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         />
       ) : (
@@ -115,7 +145,13 @@ export default function ExploreScreen() {
             <Text style={s.sectionLabel}>Browse categories</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 18 }}>
               {categories.map(category => (
-                <TouchableOpacity key={category} style={s.categoryChip} onPress={() => setQuery(category)}>
+                <TouchableOpacity
+                  key={category}
+                  style={s.categoryChip}
+                  onPress={() => setQuery(category)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Search ${category} videos`}
+                >
                   <Text style={s.categoryChipText}>{category}</Text>
                 </TouchableOpacity>
               ))}
@@ -126,6 +162,16 @@ export default function ExploreScreen() {
               <View style={s.searchState}>
                 <Ionicons name="cloud-offline-outline" size={32} color={C.dim} />
                 <Text style={s.emptyText}>{trendingError}</Text>
+                <TouchableOpacity
+                  style={s.retryButton}
+                  onPress={() => {
+                    setTrendingLoading(true);
+                    setTrendingRetryKey(key => key + 1);
+                  }}
+                  accessibilityRole="button"
+                >
+                  <Text style={s.retryText}>Try again</Text>
+                </TouchableOpacity>
               </View>
             )}
             {!trendingLoading && !trendingError && trendingVideos.length === 0 && (
@@ -163,29 +209,8 @@ const s = StyleSheet.create({
   sectionLabel: { color: C.text, fontSize: 16, fontFamily: 'Outfit_700Bold', marginBottom: 14 },
   categoryChip: { paddingHorizontal: 14, paddingVertical: 8, backgroundColor: C.elevated, borderRadius: 18, borderWidth: 1, borderColor: C.borderLight },
   categoryChipText: { color: C.muted, fontSize: 13, fontFamily: 'Outfit_500Medium' },
-  trendRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border,
-  },
-  trendIcon: {
-    width: 34, height: 34, borderRadius: 17,
-    backgroundColor: C.elevated, borderWidth: 1, borderColor: C.borderLight,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  trendText: { color: C.text, fontSize: 14, fontFamily: 'Outfit_400Regular', flex: 1 },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  catCard: {
-    width: '47.5%', aspectRatio: 16 / 9,
-    borderRadius: 12, overflow: 'hidden', position: 'relative',
-    backgroundColor: '#111',
-  },
-  catImage: { width: '100%', height: '100%' },
-  catOverlay: { ...StyleSheet.absoluteFillObject },
-  catContent: {
-    position: 'absolute', bottom: 0, left: 0, right: 0,
-    padding: 10, flexDirection: 'row', alignItems: 'center', gap: 6,
-  },
-  catLabel: { color: '#fff', fontSize: 14, fontFamily: 'Outfit_700Bold' },
+  retryButton: { backgroundColor: C.accent, borderRadius: 18, paddingHorizontal: 16, paddingVertical: 8, marginTop: 2 },
+  retryText: { color: '#fff', fontSize: 13, fontFamily: 'Outfit_700Bold' },
   emptyWrap: { flex: 1, alignItems: 'center', paddingTop: 80, gap: 12 },
   emptyText: { color: C.muted, fontSize: 16, fontFamily: 'Outfit_400Regular' },
   searchState: { alignItems: 'center', paddingTop: 28, gap: 10 },

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity,
+  ActivityIndicator, Modal, View, Text, ScrollView, TouchableOpacity,
   StyleSheet, Dimensions, Animated, Platform, Linking, Share,
 } from 'react-native';
 import { Image } from 'expo-image';
@@ -56,12 +56,22 @@ export default function PlayerScreen() {
     useLocalSearchParams<{ id: string; title?: string; channel?: string; thumbnail?: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { likedVideoIds, savedVideoIds, toggleLike, toggleSave, recordHistory } = useAppContext();
+  const {
+    likedVideoIds, savedVideoIds, history, playlists,
+    toggleLike, toggleSave, recordHistory, addVideoToPlaylist, removeVideoFromPlaylist,
+  } = useAppContext();
   const videoId = Array.isArray(id) ? id[0] : id;
   const [liveVideo, setLiveVideo] = useState<Awaited<ReturnType<typeof fetchYouTubeVideo>> | null>(null);
   const [comments, setComments] = useState<LiveComment[]>([]);
   const [commentCount, setCommentCount] = useState<number | null>(null);
+  const [commentsLoading, setCommentsLoading] = useState(true);
   const [commentsError, setCommentsError] = useState<string | null>(null);
+  const [commentsRetryKey, setCommentsRetryKey] = useState(0);
+  const [detailsLoading, setDetailsLoading] = useState(true);
+  const [detailsError, setDetailsError] = useState<string | null>(null);
+  const [detailsRetryKey, setDetailsRetryKey] = useState(0);
+  const [playlistPickerOpen, setPlaylistPickerOpen] = useState(false);
+  const [playlistFeedback, setPlaylistFeedback] = useState<string | null>(null);
   const [candidateIndex, setCandidateIndex] = useState(0);
   const upNext = liveVideo?.relatedVideos ?? [];
 
@@ -72,6 +82,9 @@ export default function PlayerScreen() {
   const [seekRightKey, setSeekRightKey] = useState(0);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [posterVisible, setPosterVisible] = useState(true);
+  const lastProgressSavedAt = useRef(0);
+  const historyRef = useRef(history);
+  historyRef.current = history;
   const isLiked = !!videoId && likedVideoIds.includes(videoId);
   const isSaved = !!videoId && savedVideoIds.includes(videoId);
   const playbackCandidates = (liveVideo?.nativePlaybackCandidates ?? []).filter(candidate => {
@@ -95,25 +108,47 @@ export default function PlayerScreen() {
   );
 
   useEffect(() => {
+    setLiveVideo(null);
+    setCandidateIndex(0);
+    setPlaybackError(null);
+    setPosterVisible(true);
+    lastProgressSavedAt.current = 0;
+  }, [videoId]);
+
+  useEffect(() => {
     if (!videoId || !/^[\w-]{6,20}$/.test(videoId)) {
-      setPlaybackError('This video link is invalid.');
+      setDetailsLoading(false);
+      setDetailsError('This video link is invalid.');
       return;
     }
     let active = true;
     setLiveVideo(null);
-    setComments([]);
-    setCommentCount(null);
-    setCommentsError(null);
-    setCandidateIndex(0);
-    setPlaybackError(null);
-    setPosterVisible(true);
+    setDetailsLoading(true);
+    setDetailsError(null);
     fetchYouTubeVideo(videoId)
       .then(details => {
         if (active) setLiveVideo(details);
       })
       .catch(error => {
-        if (active) setPlaybackError(error instanceof Error ? error.message : 'Video details could not be loaded.');
+        if (active) setDetailsError(error instanceof Error ? error.message : 'Video details could not be loaded.');
+      })
+      .finally(() => {
+        if (active) setDetailsLoading(false);
       });
+    return () => { active = false; };
+  }, [videoId, detailsRetryKey]);
+
+  useEffect(() => {
+    if (!videoId || !/^[\w-]{6,20}$/.test(videoId)) {
+      setCommentsLoading(false);
+      setCommentsError('This video link is invalid.');
+      return;
+    }
+    let active = true;
+    setComments([]);
+    setCommentCount(null);
+    setCommentsLoading(true);
+    setCommentsError(null);
     fetchYouTubeComments(videoId)
       .then(result => {
         if (!active) return;
@@ -122,9 +157,12 @@ export default function PlayerScreen() {
       })
       .catch(error => {
         if (active) setCommentsError(error instanceof Error ? error.message : 'Comments could not be loaded.');
+      })
+      .finally(() => {
+        if (active) setCommentsLoading(false);
       });
     return () => { active = false; };
-  }, [videoId]);
+  }, [videoId, commentsRetryKey]);
 
   useEffect(() => {
     const statusSubscription = nativePlayer.addListener('statusChange', event => {
@@ -145,6 +183,14 @@ export default function PlayerScreen() {
     const timeSubscription = nativePlayer.addListener('timeUpdate', event => {
       if (nativePlayer.duration > 0 && Number.isFinite(nativePlayer.duration)) {
         setProgress(Math.max(0, Math.min(1, event.currentTime / nativePlayer.duration)));
+        if (videoId && event.currentTime - lastProgressSavedAt.current >= 10 && liveVideo) {
+          lastProgressSavedAt.current = event.currentTime;
+          recordHistory(videoId, {
+            title: liveVideo.title,
+            channel: liveVideo.channel,
+            thumbnail: liveVideo.thumbnail,
+          }, event.currentTime / nativePlayer.duration);
+        }
       }
     });
     return () => {
@@ -152,7 +198,7 @@ export default function PlayerScreen() {
       playingSubscription.remove();
       timeSubscription.remove();
     };
-  }, [nativePlayer, candidateIndex, playbackCandidates.length]);
+  }, [nativePlayer, candidateIndex, playbackCandidates.length, videoId, liveVideo, recordHistory]);
 
   useEffect(() => {
     setProgress(0);
@@ -164,12 +210,13 @@ export default function PlayerScreen() {
   useEffect(() => {
     const title = liveVideo?.title ?? routeTitle;
     if (!videoId || !title) return;
+    const existingProgress = historyRef.current.find(item => item.videoId === videoId)?.progress ?? 0;
     recordHistory(videoId, {
       title,
       channel: liveVideo?.channel ?? routeChannel ?? '',
       thumbnail: liveVideo?.thumbnail ?? routeThumbnail ?? '',
-    }, 0);
-  }, [videoId, liveVideo?.title, routeTitle]);
+    }, existingProgress);
+  }, [videoId, liveVideo?.title, routeTitle, liveVideo?.channel, liveVideo?.thumbnail, routeChannel, routeThumbnail, recordHistory]);
 
   const controlsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const playingRef = useRef(playing);
@@ -228,6 +275,16 @@ export default function PlayerScreen() {
   const displayThumbnail = liveVideo?.thumbnail ?? routeThumbnail ?? '';
   const watchUrl = liveVideo?.watchUrl ?? (videoId && /^[\w-]{6,20}$/.test(videoId) ? `https://www.youtube.com/watch?v=${videoId}` : 'https://www.youtube.com');
   const channelInitials = displayChannel.trim().slice(0, 2).toUpperCase() || 'YT';
+  const togglePlaylistMembership = (playlistId: string, playlistName: string, alreadyAdded: boolean) => {
+    if (!videoId) return;
+    if (alreadyAdded) {
+      removeVideoFromPlaylist(playlistId, videoId);
+      setPlaylistFeedback(`Removed from ${playlistName}`);
+    } else {
+      addVideoToPlaylist(playlistId, videoId);
+      setPlaylistFeedback(`Added to ${playlistName}`);
+    }
+  };
 
   return (
     <View style={ps.root}>
@@ -326,7 +383,9 @@ export default function PlayerScreen() {
             <View style={{ flex: 1 }}>
               <Text style={ps.chanName}>{displayChannel || 'YouTube'}</Text>
               <Text style={ps.viewCount}>
-                {liveVideo?.views ? `${Number(liveVideo.views).toLocaleString()} views · ${liveVideo.livestream ? 'Live' : liveVideo.publishedAt}` : playbackError ?? 'Loading video details…'}
+                {liveVideo
+                  ? `${Number(liveVideo.views).toLocaleString()} views · ${liveVideo.livestream ? 'Live' : liveVideo.publishedAt}`
+                  : detailsLoading ? 'Loading video details…' : detailsError ?? 'Video details unavailable'}
               </Text>
             </View>
             <TouchableOpacity style={ps.subBtn} onPress={() => void Linking.openURL(watchUrl)}>
@@ -341,6 +400,7 @@ export default function PlayerScreen() {
             { icon: isLiked ? 'heart' : 'heart-outline', label: liveVideo?.likes ? Number(liveVideo.likes).toLocaleString() : 'Like', color: isLiked ? C.accent : C.muted, onPress: () => videoId && toggleLike(videoId) },
             { icon: 'share-social-outline', label: 'Share', color: C.muted, onPress: () => void Share.share({ message: watchUrl }) },
             { icon: isSaved ? 'bookmark' : 'bookmark-outline', label: 'Save', color: isSaved ? C.accent : C.muted, onPress: () => videoId && toggleSave(videoId) },
+            { icon: 'list-outline', label: 'Playlist', color: C.muted, onPress: () => { setPlaylistFeedback(null); setPlaylistPickerOpen(true); } },
             { icon: 'cloud-download-outline', label: 'Offline unavailable', color: C.dim, onPress: undefined, disabled: true },
           ].map(action => (
             <TouchableOpacity key={action.label} style={ps.actionBtn} onPress={action.onPress} disabled={action.disabled} activeOpacity={0.7}>
@@ -352,6 +412,22 @@ export default function PlayerScreen() {
           ))}
         </ScrollView>
 
+        {detailsError && (
+          <View style={ps.retryPanel}>
+            <Text style={ps.commentText}>{detailsError}</Text>
+            <TouchableOpacity
+              onPress={() => setDetailsRetryKey(key => key + 1)}
+              style={ps.retryButton}
+              accessibilityRole="button"
+              accessibilityLabel="Retry loading video details"
+            >
+              <Ionicons name="refresh" size={16} color="#fff" />
+              <Text style={ps.retryButtonText}>Retry details</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+        {playbackError && <Text style={[ps.commentText, { paddingHorizontal: 14, paddingVertical: 8 }]}>{playbackError}</Text>}
+
         {/* Description */}
         {displayDescription ? <View style={ps.descBlock}>
           <Text style={ps.descText} numberOfLines={3}>{displayDescription}</Text>
@@ -360,8 +436,27 @@ export default function PlayerScreen() {
         {/* Comments */}
         <View style={ps.section}>
           <Text style={ps.sectionLabel}>Comments{commentCount !== null ? ` · ${commentCount.toLocaleString()}` : ''}</Text>
-          {commentsError ? <Text style={ps.commentText}>{commentsError}</Text> : null}
-          {!commentsError && comments.length === 0 && <Text style={ps.commentText}>{liveVideo ? 'No comments were returned.' : 'Loading comments…'}</Text>}
+          {commentsError ? (
+            <View style={ps.retryPanel}>
+              <Text style={ps.commentText}>{commentsError}</Text>
+              <TouchableOpacity
+                onPress={() => setCommentsRetryKey(key => key + 1)}
+                style={ps.retryButton}
+                accessibilityRole="button"
+                accessibilityLabel="Retry loading comments"
+              >
+                <Ionicons name="refresh" size={16} color="#fff" />
+                <Text style={ps.retryButtonText}>Retry comments</Text>
+              </TouchableOpacity>
+            </View>
+          ) : commentsLoading ? (
+            <View style={ps.commentsLoading}>
+              <ActivityIndicator color={C.accent} />
+              <Text style={ps.commentText}>Loading comments…</Text>
+            </View>
+          ) : comments.length === 0 ? (
+            <Text style={ps.commentText}>No comments were returned.</Text>
+          ) : null}
           {comments.map(comment => (
             <View key={comment.id} style={ps.comment}>
               {comment.thumbnail ? (
@@ -405,6 +500,74 @@ export default function PlayerScreen() {
           ))}
         </View>
       </ScrollView>
+
+      <Modal
+        visible={playlistPickerOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setPlaylistPickerOpen(false)}
+      >
+        <View style={ps.modalBackdrop}>
+          <View style={[ps.modalCard, { paddingBottom: Math.max(insets.bottom, 20) }]}>
+            <View style={ps.modalHeading}>
+              <Text style={ps.modalTitle}>Add to playlist</Text>
+              <TouchableOpacity
+                onPress={() => setPlaylistPickerOpen(false)}
+                hitSlop={10}
+                accessibilityRole="button"
+                accessibilityLabel="Close playlist picker"
+              >
+                <Ionicons name="close" size={22} color={C.muted} />
+              </TouchableOpacity>
+            </View>
+            {playlistFeedback && <Text style={ps.playlistFeedback}>{playlistFeedback}</Text>}
+            {playlists.length === 0 ? (
+              <View style={ps.noPlaylists}>
+                <Text style={ps.commentText}>Create a local playlist to organize this video.</Text>
+                <TouchableOpacity
+                  style={ps.retryButton}
+                  onPress={() => {
+                    setPlaylistPickerOpen(false);
+                    router.push({ pathname: '/(tabs)/library', params: { tab: 'playlists' } });
+                  }}
+                  accessibilityRole="button"
+                >
+                  <Ionicons name="add" size={18} color="#fff" />
+                  <Text style={ps.retryButtonText}>Open playlists</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <ScrollView style={ps.playlistList} keyboardShouldPersistTaps="handled">
+                {playlists.map(playlist => {
+                  const alreadyAdded = playlist.videoIds.includes(videoId ?? '');
+                  return (
+                    <TouchableOpacity
+                      key={playlist.id}
+                      style={ps.playlistOption}
+                      onPress={() => togglePlaylistMembership(playlist.id, playlist.name, alreadyAdded)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${alreadyAdded ? 'Remove from' : 'Add to'} ${playlist.name}`}
+                    >
+                      <View style={ps.playlistOptionIcon}>
+                        <Ionicons name="lock-closed" size={18} color={C.accent} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={ps.playlistOptionName}>{playlist.name}</Text>
+                        <Text style={ps.playlistOptionMeta}>{playlist.videoIds.length} videos</Text>
+                      </View>
+                      <Ionicons
+                        name={alreadyAdded ? 'checkmark-circle' : 'add-circle-outline'}
+                        size={22}
+                        color={alreadyAdded ? C.accent : C.muted}
+                      />
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -468,6 +631,10 @@ const ps = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border,
   },
   descText: { color: C.muted, fontSize: 13, lineHeight: 20 },
+  retryPanel: { paddingHorizontal: 14, paddingVertical: 12, gap: 10 },
+  retryButton: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 8, backgroundColor: C.accent, borderRadius: 18, paddingHorizontal: 14, paddingVertical: 9 },
+  retryButtonText: { color: '#fff', fontSize: 12, fontFamily: 'Outfit_700Bold' },
+  commentsLoading: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12 },
   section: { paddingHorizontal: 14, paddingTop: 20 },
   sectionLabel: { color: C.text, fontSize: 15, fontFamily: 'Outfit_700Bold', marginBottom: 14 },
   comment: { flexDirection: 'row', gap: 12, marginBottom: 20 },
@@ -476,6 +643,17 @@ const ps = StyleSheet.create({
   commentUser: { color: C.text, fontSize: 13, fontFamily: 'Outfit_600SemiBold' },
   commentTime: { color: C.dim, fontSize: 11 },
   commentText: { color: C.muted, fontSize: 13, lineHeight: 19, marginTop: 4 },
+  modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.72)' },
+  modalCard: { maxHeight: '75%', backgroundColor: C.elevated, borderTopLeftRadius: 20, borderTopRightRadius: 20, borderWidth: 1, borderColor: C.borderLight, paddingHorizontal: 18, paddingTop: 18, gap: 14 },
+  modalHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  modalTitle: { color: C.text, fontSize: 18, fontFamily: 'Outfit_700Bold' },
+  playlistFeedback: { color: C.accent, fontSize: 13, fontFamily: 'Outfit_600SemiBold' },
+  noPlaylists: { alignItems: 'flex-start', gap: 14, paddingVertical: 14 },
+  playlistList: { flexGrow: 0 },
+  playlistOption: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.border },
+  playlistOptionIcon: { width: 38, height: 38, borderRadius: 10, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center' },
+  playlistOptionName: { color: C.text, fontSize: 14, fontFamily: 'Outfit_600SemiBold' },
+  playlistOptionMeta: { color: C.dim, fontSize: 11, marginTop: 3 },
   upNextRow: { flexDirection: 'row', gap: 12, marginBottom: 14 },
   upNextThumb: { width: 140, height: 79, borderRadius: 8, overflow: 'hidden', backgroundColor: '#111', position: 'relative', flexShrink: 0 },
   upNextDur: {

@@ -24,12 +24,27 @@ function ContinueCard({ item }: { item: LocalHistoryItem }) {
     <TouchableOpacity
       style={cw.card}
       activeOpacity={0.85}
-      onPress={() => router.push({ pathname: '/player', params: { id: item.videoId } })}
+      accessibilityRole="button"
+      accessibilityLabel={`Continue watching ${item.title}`}
+      onPress={() => router.push({
+        pathname: '/player',
+        params: {
+          id: item.videoId,
+          title: item.title,
+          channel: item.channel,
+          thumbnail: item.thumbnail,
+        },
+      })}
     >
       <View style={cw.thumbWrap}>
-        <Image source={item.thumbnail} style={cw.thumb} contentFit="cover" />
+        {!!item.thumbnail && <Image source={{ uri: item.thumbnail }} style={cw.thumb} contentFit="cover" />}
         <View style={cw.overlay} />
         <Ionicons name="play-circle" size={32} color="rgba(255,255,255,0.9)" style={cw.playIcon} />
+        {item.progress > 0 && (
+          <View style={cw.progressTrack}>
+            <View style={[cw.progressFill, { width: `${Math.round(item.progress * 100)}%` }]} />
+          </View>
+        )}
       </View>
       <Text style={cw.title} numberOfLines={2}>{item.title}</Text>
       <Text style={cw.meta}>{item.channel} · Recently watched</Text>
@@ -41,6 +56,8 @@ const cw = StyleSheet.create({
   card: { width: 200, marginRight: 12 },
   thumbWrap: { width: 200, height: 112, borderRadius: 10, overflow: 'hidden', position: 'relative', backgroundColor: '#111' },
   thumb: { width: '100%', height: '100%' },
+  progressTrack: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 3, backgroundColor: 'rgba(255,255,255,0.28)' },
+  progressFill: { height: '100%', backgroundColor: C.accent },
   overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.18)' },
   playIcon: { position: 'absolute', top: '50%', left: '50%', marginTop: -16, marginLeft: -16 },
   title: { color: C.text, fontSize: 13, fontWeight: '600', fontFamily: 'Outfit_600SemiBold', marginTop: 8, lineHeight: 18 },
@@ -104,13 +121,13 @@ export default function HomeScreen() {
       {loading && (
         <View style={s.state}>
           <ActivityIndicator color={C.accent} />
-          <Text style={s.stateText}>Loading from YouTube…</Text>
+          <Text style={s.stateText}>Loading videos…</Text>
         </View>
       )}
       {!loading && error && (
         <View style={s.state}>
           <Ionicons name="cloud-offline-outline" size={32} color={C.dim} />
-          <Text style={s.stateTitle}>YouTube couldn’t be reached</Text>
+          <Text style={s.stateTitle}>Videos couldn’t be loaded</Text>
           <Text style={s.stateText}>{error}</Text>
           <TouchableOpacity style={s.retryBtn} onPress={() => setRetryKey(key => key + 1)}>
             <Text style={s.retryText}>Try again</Text>
@@ -167,18 +184,6 @@ const s = StyleSheet.create({
   logo: { color: C.text, fontSize: 28, fontFamily: 'Outfit_700Bold', letterSpacing: -1 },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   iconBtn: { padding: 7 },
-  userAvatar: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginLeft: 6 },
-  userAvatarText: { color: '#fff', fontSize: 11, fontWeight: '700' },
-  banner: {
-    flexDirection: 'row', alignItems: 'center',
-    marginHorizontal: 14, marginTop: 12, marginBottom: 4,
-    backgroundColor: C.elevated, borderWidth: 1, borderColor: C.borderLight,
-    borderRadius: 14, padding: 14,
-  },
-  bannerTitle: { color: C.text, fontSize: 13, fontWeight: '600', fontFamily: 'Outfit_600SemiBold' },
-  bannerSub: { color: C.muted, fontSize: 12, marginTop: 1 },
-  bannerBtn: { backgroundColor: C.accent, paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, marginLeft: 10 },
-  bannerBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
   section: { paddingTop: 18 },
   sectionLabel: { color: C.text, fontSize: 14, fontFamily: 'Outfit_600SemiBold', paddingHorizontal: 14, marginBottom: 10 },
   chip: {

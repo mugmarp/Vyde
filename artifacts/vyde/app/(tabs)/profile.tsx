@@ -15,12 +15,18 @@ const C = {
   accent: '#E84A27', border: '#1F1F2E', borderLight: '#2A2A3D',
 };
 
-function StatPill({ label, value }: { label: string; value: string }) {
+function StatPill({ label, value, onPress }: { label: string; value: string; onPress: () => void }) {
   return (
-    <View style={st.pill}>
+    <TouchableOpacity
+      style={st.pill}
+      onPress={onPress}
+      activeOpacity={0.75}
+      accessibilityRole="button"
+      accessibilityLabel={`${label}: ${value}`}
+    >
       <Text style={st.val}>{value}</Text>
       <Text style={st.lbl}>{label}</Text>
-    </View>
+    </TouchableOpacity>
   );
 }
 
@@ -49,9 +55,9 @@ export default function ProfileScreen() {
       </View>
 
       <View style={s.statsRow}>
-        <StatPill label="Watched" value={String(history.length)} />
-        <StatPill label="Liked" value={String(likedVideoIds.length)} />
-        <StatPill label="Saved" value={String(savedVideoIds.length)} />
+        <StatPill label="History" value={String(history.length)} onPress={() => router.push({ pathname: '/(tabs)/library', params: { tab: 'history' } })} />
+        <StatPill label="Liked" value={String(likedVideoIds.length)} onPress={() => router.push({ pathname: '/(tabs)/library', params: { tab: 'liked' } })} />
+        <StatPill label="Saved" value={String(savedVideoIds.length)} onPress={() => router.push({ pathname: '/(tabs)/library', params: { tab: 'saved' } })} />
       </View>
 
       <View style={s.section}>
@@ -69,18 +75,37 @@ export default function ProfileScreen() {
       </View>
 
       <View style={s.section}>
-        <Text style={s.sectionLabel}>Recently watched</Text>
+        <View style={s.sectionHeading}>
+          <Text style={s.sectionLabel}>Recently watched</Text>
+          {history.length > 5 && (
+            <TouchableOpacity
+              onPress={() => router.push({ pathname: '/(tabs)/library', params: { tab: 'history' } })}
+              accessibilityRole="button"
+              accessibilityLabel="See all watch history"
+            >
+              <Text style={s.seeAll}>See all</Text>
+            </TouchableOpacity>
+          )}
+        </View>
         {history.length === 0 ? (
           <View style={s.emptyState}>
             <Ionicons name="time-outline" size={32} color={C.dim} />
             <Text style={s.heroSub}>Videos you open will appear here.</Text>
           </View>
-        ) : history.slice(0, 20).map(item => (
+        ) : history.slice(0, 5).map(item => (
           <TouchableOpacity
             key={item.videoId}
             style={s.historyRow}
             activeOpacity={0.8}
-            onPress={() => router.push({ pathname: '/player', params: { id: item.videoId } })}
+            onPress={() => router.push({
+              pathname: '/player',
+              params: {
+                id: item.videoId,
+                title: item.title,
+                channel: item.channel,
+                thumbnail: item.thumbnail,
+              },
+            })}
           >
             <Image source={item.thumbnail} style={s.historyThumb} contentFit="cover" />
             <View style={{ flex: 1 }}>
@@ -105,36 +130,18 @@ const s = StyleSheet.create({
   historyThumb: { width: 104, height: 58, borderRadius: 7, backgroundColor: C.elevated },
   historyTitle: { color: C.text, fontSize: 13, fontFamily: 'Outfit_600SemiBold', lineHeight: 18 },
   historyMeta: { color: C.dim, fontSize: 11, marginTop: 4 },
-  signedOutHero: {
-    alignItems: 'center', paddingTop: 60, paddingBottom: 32, paddingHorizontal: 32,
-  },
   vydeMarkWrap: {
     width: 72, height: 72, borderRadius: 36,
     backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center', marginBottom: 20,
   },
   vydeMark: { color: '#fff', fontSize: 36, fontFamily: 'Outfit_700Bold' },
-  heroTitle: { color: C.text, fontSize: 22, fontFamily: 'Outfit_700Bold', textAlign: 'center', marginBottom: 10 },
+  heroTitle: { color: C.text, fontSize: 22, fontFamily: 'Outfit_700Bold', textAlign: 'left', marginBottom: 4 },
   heroSub: { color: C.muted, fontSize: 14, textAlign: 'center', lineHeight: 21 },
-  featureBullets: { paddingHorizontal: 32, paddingTop: 28, gap: 14 },
-  bullet: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  bulletText: { color: C.muted, fontSize: 15 },
-  googleBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    backgroundColor: C.accent, marginHorizontal: 24, marginTop: 36,
-    paddingVertical: 14, borderRadius: 14, justifyContent: 'center',
-  },
-  googleBtnText: { color: '#fff', fontSize: 16, fontFamily: 'Outfit_700Bold' },
-  skipBtn: { paddingVertical: 16, alignItems: 'center' },
-  skipBtnText: { color: C.muted, fontSize: 14 },
-  heroBanner: { paddingHorizontal: 16, paddingBottom: 20 },
-  profileRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 20 },
-  bigAvatar: { width: 60, height: 60, borderRadius: 30, alignItems: 'center', justifyContent: 'center' },
-  bigAvatarText: { color: '#fff', fontSize: 22, fontFamily: 'Outfit_700Bold' },
-  userName: { color: C.text, fontSize: 18, fontFamily: 'Outfit_700Bold' },
-  userEmail: { color: C.muted, fontSize: 13, marginTop: 2 },
   statsRow: { flexDirection: 'row', gap: 8 },
   section: { paddingHorizontal: 14, paddingTop: 24 },
   sectionLabel: { color: C.text, fontSize: 14, fontFamily: 'Outfit_700Bold', marginBottom: 12 },
+  sectionHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  seeAll: { color: C.accent, fontSize: 13, fontFamily: 'Outfit_600SemiBold', marginBottom: 12 },
   linkRow: {
     flexDirection: 'row', alignItems: 'center', gap: 14,
     paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border,
@@ -146,11 +153,4 @@ const s = StyleSheet.create({
   },
   linkLabel: { color: C.text, fontSize: 15, flex: 1 },
   linkCount: { color: C.dim, fontSize: 13, marginRight: 6 },
-  signOutBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    marginHorizontal: 14, marginTop: 32, paddingVertical: 14,
-    borderWidth: 1, borderColor: '#ef444430', borderRadius: 14,
-    paddingHorizontal: 16, backgroundColor: '#ef44440A',
-  },
-  signOutText: { color: '#ef4444', fontSize: 15, fontFamily: 'Outfit_600SemiBold' },
 });
