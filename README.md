@@ -79,7 +79,28 @@ npm run dev
   - `constants/`: Theme colors and visual tokens.
 - `artifacts/api-server/`: Express backend helper service for web CORS proxying.
 - `artifacts/mockup-sandbox/`: Reference visual designs and mockup components.
-- `docs/`: Architecture specifications and runbooks.
+- `docs/`: Architecture specifications, roadmap, and handover notes:
+  - [`docs/CRITICAL_ANALYSIS_HANDOVER.md`](docs/CRITICAL_ANALYSIS_HANDOVER.md) — Technical risks, PoToken/DASH strategy, and milestone DoD.
+  - [`docs/VYDE_ARCHITECTURE.md`](docs/VYDE_ARCHITECTURE.md) — Complete architecture and system diagrams.
+
+---
+
+## 🚦 Roadmap & Success Metrics
+
+- **M1 (Current)**: In-App Native Playback ($\ge$ 70% streams playable via direct InnerTube extraction without opening YouTube).
+- **M2**: Modern Player UX (edge swipe volume/brightness, double-tap seek ripples, aspect ratio pinch).
+- **M3**: Sandboxed Download Manager (background video & audio download, storage bar, OS Share Sheet export).
+- **M4**: Local-First Persistence (SQLite database for local playlists, watch history, subscriptions).
+- **M5**: Account Bridge & Sideload Distribution (optional Google OAuth 2.0 PKCE, automated Android APK builds via GitHub Actions).
+
+---
+
+## ⚙️ CI/CD & Build Pipeline
+
+Building and verification are managed automatically via GitHub Actions:
+- **Typecheck & Lint**: Runs on every commit and pull request to verify all packages.
+- **Web Preview Bundle**: Automatically exports and uploads the web preview bundle.
+- **Android APK Build**: Builds debug/sideloadable APKs on tags and manual dispatch.
 
 ---
 

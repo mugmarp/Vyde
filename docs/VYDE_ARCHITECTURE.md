@@ -96,3 +96,28 @@ npx expo start --web
 ### Environment Configuration
 - `EXPO_PUBLIC_API_URL`: Optional URL override for the Express helper server (defaults to local `http://localhost:3000` when running hybrid web).
 - No mandatory API keys are required for anonymous discovery, search, and playback.
+
+
+---
+
+## 6. Phased Roadmap & Success Metrics
+
+The project is executed against concrete, verified milestones:
+
+| Milestone | Target | Definition of Done |
+| :--- | :--- | :--- |
+| **M1** | In-App Native Playback | $\ge$ 70% of normal videos play inside Vyde without redirecting to YouTube. |
+| **M2** | Player UX & Gestures | Edge-swipe gestures (volume, brightness), double-tap seek ripples, aspect ratio (fit/fill), and speed/quality controls. |
+| **M3** | Offline Media Engine | Sandboxed download of progressive MP4 and audio-only streams; offline playback and OS Share Sheet export. |
+| **M4** | Local-First Library | Robust local persistence for watch history, likes, and playlists (migrating to SQLite/expo-sqlite). |
+| **M5** | Account Bridge & Release | Optional Google OAuth 2.0 PKCE sync; automated Android APK builds via GitHub Actions. |
+
+---
+
+## 7. Distribution Strategy & CI/CD
+
+- **Distribution Intent**: Sideload / F-Droid / personal / open-source. Not constrained by Google Play Store or Apple App Store restrictions.
+- **Continuous Integration**: Managed via `.github/workflows/ci.yml`.
+  - Automated typechecking across all workspace packages (`@workspace/vyde`, `@workspace/api-server`).
+  - Automated web bundle export and artifact uploads.
+  - Automated Android APK builds (`./gradlew assembleDebug`) for direct sideload testing on tags and workflow dispatches.
