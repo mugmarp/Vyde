@@ -2,263 +2,288 @@ import { Router, type IRouter } from "express";
 
 const router: IRouter = Router();
 
-type PipedItem = {
-  type?: string;
-  url?: string;
-  title?: string;
-  thumbnail?: string;
-  uploaderName?: string;
-  uploaderUrl?: string;
-  uploaderAvatar?: string;
-  uploadedDate?: string;
-  views?: number;
-  duration?: number;
-  shortDescription?: string;
+const INNERTUBE_BASE_URL = "https://www.youtube.com/youtubei/v1";
+
+const CLIENTS = {
+  ANDROID: {
+    clientName: "ANDROID",
+    clientVersion: "19.29.37",
+    androidSdkVersion: 34,
+    userAgent: "com.google.android.youtube/19.29.37 (Linux; U; Android 14; US) gzip",
+    code: "3",
+  },
+  IOS: {
+    clientName: "IOS",
+    clientVersion: "19.29.1",
+    deviceModel: "iPhone16,2",
+    userAgent: "com.google.ios.youtube/19.29.1 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X; en_US)",
+    code: "5",
+  },
+  WEB: {
+    clientName: "WEB",
+    clientVersion: "2.20241025.01.00",
+    userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+    code: "1",
+  },
 };
-
-type PipedVideoStream = {
-  url?: string;
-  mimeType?: string;
-  quality?: string;
-  format?: string;
-  videoOnly?: boolean;
-  width?: number;
-  height?: number;
-};
-
-type PipedVideo = {
-  title?: string;
-  description?: string;
-  uploadDate?: string;
-  uploader?: string;
-  uploaderUrl?: string;
-  uploaderAvatar?: string;
-  thumbnailUrl?: string;
-  hls?: string | null;
-  duration?: number;
-  views?: number;
-  likes?: number;
-  videoStreams?: PipedVideoStream[];
-  relatedStreams?: PipedItem[];
-  livestream?: boolean;
-};
-
-function pipedBaseUrl() {
-  const value = process.env.PIPED_API_BASE_URL ?? "https://api.piped.private.coffee";
-  const url = new URL(value);
-  if (url.protocol !== "https:") {
-    throw new Error("PIPED_API_BASE_URL must use HTTPS.");
-  }
-  return url.toString().replace(/\/$/, "");
-}
-
-async function piped(path: string): Promise<unknown> {
-  const response = await fetch(`${pipedBaseUrl()}${path}`, {
-    headers: { accept: "application/json", "user-agent": "Vyde/0.1" },
-    signal: AbortSignal.timeout(15_000),
-  });
-  const text = await response.text();
-  let body: unknown;
-  try {
-    body = JSON.parse(text);
-  } catch {
-    throw new Error(`Piped returned an invalid response (${response.status}).`);
-  }
-  if (!response.ok) {
-    throw new Error(`Piped request failed (${response.status}).`);
-  }
-  return body;
-}
-
-function videoIdFromUrl(value: unknown): string {
-  if (typeof value !== "string") return "";
-  const match = value.match(/[?&]v=([\w-]{6,20})/);
-  return match?.[1] ?? "";
-}
 
 function youtubeThumbnail(id: string) {
   return `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
 }
 
-function plainText(value: unknown) {
-  if (typeof value !== "string") return "";
-  return value
-    .replace(/<br\s*\/?>/gi, " ")
-    .replace(/<\/p>/gi, " ")
-    .replace(/<[^>]*>/g, "")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&quot;/gi, "\"")
-    .replace(/&#39;|&apos;/gi, "'")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function mapVideo(item: PipedItem) {
-  const id = videoIdFromUrl(item.url);
-  if (!id || item.type !== "stream") return null;
-  return {
-    id,
-    title: item.title ?? "",
-    description: plainText(item.shortDescription),
-    channel: item.uploaderName ?? "",
-    channelId: item.uploaderUrl ?? "",
-    publishedAt: item.uploadedDate ?? "",
-    thumbnail: youtubeThumbnail(id),
-    watchUrl: `https://www.youtube.com/watch?v=${id}`,
-    views: typeof item.views === "number" ? String(item.views) : "0",
-    duration: typeof item.duration === "number" && item.duration >= 0 ? formatDuration(item.duration) : null,
-  };
-}
-
 function formatDuration(seconds: number): string {
-  const safeSeconds = Math.max(0, Math.floor(seconds));
-  const hours = Math.floor(safeSeconds / 3600);
-  const minutes = Math.floor((safeSeconds % 3600) / 60);
-  const remainder = safeSeconds % 60;
-  return hours > 0
-    ? `${hours}:${minutes.toString().padStart(2, "0")}:${remainder.toString().padStart(2, "0")}`
-    : `${minutes}:${remainder.toString().padStart(2, "0")}`;
+  const safe = Math.max(0, Math.floor(seconds));
+  const h = Math.floor(safe / 3600);
+  const m = Math.floor((safe % 3600) / 60);
+  const s = safe % 60;
+  return h > 0
+    ? `${h}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`
+    : `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-function safePlaybackUri(value: unknown) {
-  if (typeof value !== "string") return null;
-  try {
-    const uri = new URL(value);
-    return uri.protocol === "https:" ? uri.toString() : null;
-  } catch {
-    return null;
-  }
-}
+async function callInnerTube(endpoint: string, body: Record<string, unknown>, client = CLIENTS.ANDROID) {
+  const payload = {
+    ...body,
+    context: {
+      client: {
+        hl: "en",
+        gl: "US",
+        clientName: client.clientName,
+        clientVersion: client.clientVersion,
+        ...(client.androidSdkVersion ? { androidSdkVersion: client.androidSdkVersion } : {}),
+        ...(client.deviceModel ? { deviceModel: client.deviceModel } : {}),
+      },
+      user: { lockedSafetyMode: false },
+      request: { useSsl: true },
+    },
+  };
 
-function selectPlayback(video: PipedVideo) {
-  const streams = Array.isArray(video.videoStreams) ? video.videoStreams : [];
-  const playable = streams
-    .filter((stream) => stream.videoOnly === false)
-    .map((stream) => {
-      const uri = safePlaybackUri(stream.url);
-      const mimeType = stream.mimeType?.toLowerCase() ?? "";
-      if (!uri) return null;
-      if (mimeType.includes("mpegurl") || stream.format?.toLowerCase() === "hls") {
-        return { uri, contentType: "hls" as const, qualityLabel: stream.quality ?? "Auto" };
-      }
-      if (mimeType.startsWith("video/mp4")) {
-        return { uri, contentType: "progressive" as const, qualityLabel: stream.quality ?? "Auto" };
-      }
-      return null;
-    })
-    .filter((stream): stream is NonNullable<typeof stream> => stream !== null);
-
-  const hlsManifest = safePlaybackUri(video.hls);
-  if (hlsManifest && !playable.some((stream) => stream.uri === hlsManifest)) {
-    playable.unshift({ uri: hlsManifest, contentType: "hls", qualityLabel: "Auto" });
-  }
-
-  // Prefer adaptive HLS where available; otherwise use a progressive stream
-  // that already contains audio. Keep alternatives for player-level fallback.
-  return playable.sort((a, b) => {
-    if (a.contentType !== b.contentType) return a.contentType === "hls" ? -1 : 1;
-    return 0;
+  const response = await fetch(`${INNERTUBE_BASE_URL}/${endpoint}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "User-Agent": client.userAgent,
+      "X-YouTube-Client-Name": client.code,
+      "X-YouTube-Client-Version": client.clientVersion,
+    },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(15_000),
   });
+
+  if (!response.ok) {
+    throw new Error(`InnerTube request to ${endpoint} failed (${response.status})`);
+  }
+
+  return response.json();
 }
 
-function providerError(error: unknown) {
-  return error instanceof Error ? error.message : "The video provider is unavailable.";
-}
-
-router.get("/youtube/feed", async (req, res) => {
+/**
+ * Endpoint for web client to proxy arbitrary InnerTube calls and bypass CORS
+ */
+router.post("/innertube/:endpoint", async (req, res) => {
+  const endpoint = req.params.endpoint;
+  const clientName = req.body?.clientName === "IOS" ? CLIENTS.IOS : req.body?.clientName === "WEB" ? CLIENTS.WEB : CLIENTS.ANDROID;
   try {
-    const region = typeof req.query.region === "string" && /^[A-Z]{2}$/.test(req.query.region)
-      ? req.query.region
-      : "UG";
-    const data = await piped(`/trending?region=${encodeURIComponent(region)}`);
-    const items = Array.isArray(data) ? data as PipedItem[] : [];
-    res.json({ items: items.map(mapVideo).filter(Boolean), provider: "piped" });
-  } catch (error) {
-    res.status(502).json({ error: "youtube_unavailable", message: providerError(error) });
+    const data = await callInnerTube(endpoint, req.body?.body || {}, clientName);
+    res.json(data);
+  } catch (err: any) {
+    res.status(502).json({ error: "innertube_failed", message: err.message || "Failed" });
   }
 });
 
+/**
+ * Trending / Feed route
+ */
+router.get("/youtube/feed", async (_req, res) => {
+  try {
+    const data: any = await callInnerTube("browse", { browseId: "FEtrending" });
+    const items: any[] = [];
+
+    const tabs = data?.contents?.twoColumnBrowseResultsRenderer?.tabs ||
+                 data?.contents?.singleColumnBrowseResultsRenderer?.tabs || [];
+
+    for (const tab of tabs) {
+      const sections = tab?.tabRenderer?.content?.sectionListRenderer?.contents || [];
+      for (const section of sections) {
+        const entries = section?.itemSectionRenderer?.contents || [];
+        for (const entry of entries) {
+          const list = entry?.shelfRenderer?.content?.expandedShelfContentsRenderer?.items ||
+                       entry?.shelfRenderer?.content?.gridRenderer?.items ||
+                       [entry];
+          for (const item of list) {
+            const video = item?.videoRenderer || item?.gridVideoRenderer;
+            if (!video?.videoId) continue;
+            const id = video.videoId;
+            items.push({
+              id,
+              title: video.title?.runs?.[0]?.text || video.title?.simpleText || "",
+              description: "",
+              channel: video.shortBylineText?.runs?.[0]?.text || "",
+              channelId: video.shortBylineText?.runs?.[0]?.navigationEndpoint?.browseEndpoint?.browseId || "",
+              publishedAt: video.publishedTimeText?.simpleText || "",
+              thumbnail: youtubeThumbnail(id),
+              watchUrl: `https://www.youtube.com/watch?v=${id}`,
+              views: video.viewCountText?.simpleText || video.shortViewCountText?.simpleText || "0",
+              duration: video.lengthText?.simpleText || null,
+            });
+          }
+        }
+      }
+    }
+
+    res.json({ items, provider: "innertube" });
+  } catch (error: any) {
+    res.status(502).json({ error: "feed_unavailable", message: error.message || "Could not load feed" });
+  }
+});
+
+/**
+ * Search route
+ */
 router.get("/youtube/search", async (req, res) => {
   const query = typeof req.query.q === "string" ? req.query.q.trim() : "";
-  if (query.length < 2 || query.length > 160) {
-    res.status(400).json({ error: "invalid_query", message: "Search must be between 2 and 160 characters." });
+  if (query.length < 2) {
+    res.status(400).json({ error: "invalid_query", message: "Search must be at least 2 characters." });
     return;
   }
+
   try {
-    const data = await piped(`/search?q=${encodeURIComponent(query)}&filter=videos`);
-    const result = data as { items?: unknown };
-    const items = Array.isArray(result.items) ? result.items as PipedItem[] : [];
-    res.json({ items: items.map(mapVideo).filter(Boolean), provider: "piped" });
-  } catch (error) {
-    res.status(502).json({ error: "youtube_unavailable", message: providerError(error) });
+    const data: any = await callInnerTube("search", { query });
+    const items: any[] = [];
+
+    const sections =
+      data?.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer?.contents ||
+      data?.contents?.sectionListRenderer?.contents || [];
+
+    for (const section of sections) {
+      const entries = section?.itemSectionRenderer?.contents || [];
+      for (const item of entries) {
+        const video = item?.videoRenderer || item?.compactVideoRenderer;
+        if (!video?.videoId) continue;
+        const id = video.videoId;
+        items.push({
+          id,
+          title: video.title?.runs?.[0]?.text || video.title?.simpleText || "",
+          description: "",
+          channel: video.ownerText?.runs?.[0]?.text || video.shortBylineText?.runs?.[0]?.text || "",
+          channelId: "",
+          publishedAt: video.publishedTimeText?.simpleText || "",
+          thumbnail: youtubeThumbnail(id),
+          watchUrl: `https://www.youtube.com/watch?v=${id}`,
+          views: video.viewCountText?.simpleText || "0",
+          duration: video.lengthText?.simpleText || null,
+        });
+      }
+    }
+
+    res.json({ items, provider: "innertube" });
+  } catch (error: any) {
+    res.status(502).json({ error: "search_unavailable", message: error.message || "Search failed" });
   }
 });
 
+/**
+ * Video details and stream extraction
+ */
 router.get("/youtube/videos/:id", async (req, res) => {
   const id = req.params.id;
   if (!/^[\w-]{6,20}$/.test(id)) {
     res.status(400).json({ error: "invalid_video_id", message: "Invalid YouTube video ID." });
     return;
   }
+
   try {
-    const video = await piped(`/streams/${encodeURIComponent(id)}`) as PipedVideo;
-    if (!video.title) {
-      res.status(404).json({ error: "not_found", message: "Video not found." });
-      return;
+    // Try Android then iOS client
+    let player: any = null;
+    try {
+      player = await callInnerTube("player", { videoId: id }, CLIENTS.ANDROID);
+    } catch {
+      player = await callInnerTube("player", { videoId: id }, CLIENTS.IOS);
     }
-    const related = Array.isArray(video.relatedStreams) ? video.relatedStreams : [];
+
+    const details = player?.videoDetails || {};
+    const streamingData = player?.streamingData || {};
+    const lengthSec = parseInt(details.lengthSeconds || "0", 10);
+
+    const candidates: any[] = [];
+    if (streamingData.hlsManifestUrl) {
+      candidates.push({
+        uri: streamingData.hlsManifestUrl,
+        contentType: "hls",
+        qualityLabel: "Auto (HLS)",
+      });
+    }
+
+    const formats = Array.isArray(streamingData.formats) ? streamingData.formats : [];
+    for (const fmt of formats) {
+      if (fmt.url && fmt.url.startsWith("https://")) {
+        candidates.push({
+          uri: fmt.url,
+          contentType: "progressive",
+          qualityLabel: fmt.qualityLabel || (fmt.height ? `${fmt.height}p` : "MP4"),
+          bitrate: fmt.bitrate,
+          width: fmt.width,
+          height: fmt.height,
+        });
+      }
+    }
+
     res.json({
       id,
-      title: video.title,
-      description: plainText(video.description),
-      channel: video.uploader ?? "",
-      channelId: video.uploaderUrl ?? "",
-      publishedAt: video.uploadDate ?? "",
+      title: details.title || "Video",
+      description: details.shortDescription || "",
+      channel: details.author || "",
+      channelId: details.channelId || "",
+      publishedAt: "",
       thumbnail: youtubeThumbnail(id),
-      views: typeof video.views === "number" ? String(video.views) : "0",
-      likes: typeof video.likes === "number" ? String(video.likes) : "0",
-      duration: typeof video.duration === "number" && video.duration >= 0 ? formatDuration(video.duration) : null,
+      views: details.viewCount || "0",
+      likes: "0",
+      duration: lengthSec > 0 ? formatDuration(lengthSec) : null,
       watchUrl: `https://www.youtube.com/watch?v=${id}`,
-      nativePlaybackCandidates: selectPlayback(video),
-      relatedVideos: related.map(mapVideo).filter(Boolean).slice(0, 12),
-      livestream: video.livestream === true,
-      provider: "piped",
+      nativePlaybackCandidates: candidates,
+      relatedVideos: [],
+      livestream: details.isLiveContent === true,
+      provider: "innertube",
     });
-  } catch (error) {
-    res.status(502).json({ error: "youtube_unavailable", message: providerError(error) });
+  } catch (error: any) {
+    res.status(502).json({ error: "youtube_unavailable", message: error.message || "Video unavailable" });
   }
 });
 
+/**
+ * Comments route
+ */
 router.get("/youtube/comments/:id", async (req, res) => {
   const id = req.params.id;
-  if (!/^[\w-]{6,20}$/.test(id)) {
-    res.status(400).json({ error: "invalid_video_id", message: "Invalid YouTube video ID." });
-    return;
-  }
   try {
-    const result = await piped(`/comments/${encodeURIComponent(id)}`) as {
-      comments?: Array<Record<string, unknown>>;
-      commentCount?: number;
-    };
-    const comments = Array.isArray(result.comments) ? result.comments : [];
-    res.json({
-      commentCount: typeof result.commentCount === "number" ? result.commentCount : null,
-      items: comments.map((comment) => ({
-        id: typeof comment.commentId === "string" ? comment.commentId : "",
-        author: typeof comment.author === "string" ? comment.author : "",
-        authorUrl: typeof comment.authorUrl === "string" ? comment.authorUrl : "",
-        text: typeof comment.commentText === "string" ? comment.commentText : "",
-        published: typeof comment.commentedTime === "string" ? comment.commentedTime : "",
-        likes: typeof comment.likeCount === "number" ? comment.likeCount : 0,
-        thumbnail: typeof comment.thumbnail === "string" ? comment.thumbnail : "",
-      })).filter((comment) => comment.id && comment.text),
-      provider: "piped",
-    });
-  } catch (error) {
-    res.status(502).json({ error: "comments_unavailable", message: providerError(error) });
+    const data: any = await callInnerTube("next", { videoId: id });
+    const items: any[] = [];
+    let commentCount: number | null = null;
+
+    const results = data?.contents?.twoColumnWatchNextResults?.results?.results?.contents || [];
+    for (const section of results) {
+      const itemSection = section?.itemSectionRenderer;
+      if (itemSection?.sectionIdentifier === "comment-item-section") {
+        const comments = itemSection?.contents || [];
+        for (const entry of comments) {
+          const thread = entry?.commentThreadRenderer?.comment?.commentRenderer;
+          if (!thread?.commentId) continue;
+          items.push({
+            id: thread.commentId,
+            author: thread.authorText?.simpleText || "",
+            authorUrl: "",
+            text: thread.contentText?.runs?.map((r: any) => r.text).join("") || thread.contentText?.simpleText || "",
+            published: thread.publishedTimeText?.runs?.[0]?.text || "",
+            likes: thread.likeCount || 0,
+            thumbnail: thread.authorThumbnail?.thumbnails?.[0]?.url || "",
+          });
+        }
+      }
+    }
+
+    res.json({ commentCount, items, provider: "innertube" });
+  } catch (error: any) {
+    res.status(502).json({ error: "comments_unavailable", message: error.message || "Comments unavailable" });
   }
 });
 

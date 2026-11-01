@@ -101,9 +101,9 @@ export default function LibraryScreen() {
   const params = useLocalSearchParams<{ tab?: string }>();
   const requestedTab = Array.isArray(params.tab) ? params.tab[0] : params.tab;
   const {
-    playlists, likedVideoIds, savedVideoIds, history, videoCatalog, isHydrated,
+    playlists, likedVideoIds, savedVideoIds, history, downloads, videoCatalog, isHydrated,
     createPlaylist, addVideoToPlaylist, removeVideoFromPlaylist, deletePlaylist,
-    toggleLike, toggleSave,
+    removeDownload, toggleLike, toggleSave,
   } = useAppContext();
   const [tab, setTab] = useState<LibraryTab>('saved');
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(null);
@@ -252,11 +252,56 @@ export default function LibraryScreen() {
             ))
           )
         ) : tab === 'offline' ? (
-          <EmptyState
-            icon="cloud-download-outline"
-            title="Offline media is unavailable"
-            detail="Vyde does not download YouTube videos. Use YouTube’s official offline feature where it is available."
-          />
+          downloads.length === 0 ? (
+            <EmptyState
+              icon="cloud-download-outline"
+              title="No offline media yet"
+              detail="Download videos or audio from the player screen to watch them without an internet connection."
+            />
+          ) : (
+            downloads.map(item => (
+              <View key={item.videoId} style={s.videoRow}>
+                <TouchableOpacity
+                  style={s.videoMain}
+                  activeOpacity={0.8}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Play downloaded ${item.title}`}
+                  onPress={() => router.push({
+                    pathname: '/player',
+                    params: {
+                      id: item.videoId,
+                      title: item.title,
+                      channel: item.channel,
+                      thumbnail: item.thumbnail,
+                    },
+                  })}
+                >
+                  {item.thumbnail ? (
+                    <Image source={{ uri: item.thumbnail }} style={s.videoThumb} contentFit="cover" />
+                  ) : (
+                    <View style={[s.videoThumb, s.missingThumb]}>
+                      <Ionicons name="film-outline" size={20} color={C.dim} />
+                    </View>
+                  )}
+                  <View style={s.videoCopy}>
+                    <Text style={s.videoTitle} numberOfLines={2}>{item.title}</Text>
+                    <Text style={s.videoMeta} numberOfLines={1}>
+                      {item.channel} {item.fileSize ? `· ${item.fileSize}` : ''} · {item.format.toUpperCase()}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={s.removeButton}
+                  onPress={() => removeDownload(item.videoId)}
+                  hitSlop={10}
+                  accessibilityRole="button"
+                  accessibilityLabel="Delete offline download"
+                >
+                  <Ionicons name="trash-outline" size={20} color={C.muted} />
+                </TouchableOpacity>
+              </View>
+            ))
+          )
         ) : tab === 'playlists' ? (
           playlists.length === 0 ? (
             <EmptyState

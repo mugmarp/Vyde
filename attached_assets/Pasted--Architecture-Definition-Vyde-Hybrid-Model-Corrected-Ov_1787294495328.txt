@@ -1,0 +1,39 @@
+# Architecture Definition: Vyde Hybrid Model (Corrected)
+
+## Overview
+A client-side hybrid architecture combining anonymous high-throughput Innertube discovery, native client-side stream extraction, and local-first data persistence with an optional official API sync bridge.
+
+---
+
+## 1. Content Discovery Layer (Anonymous Innertube Adapter)
+* **Mechanics:** Direct client-side HTTP requests to internal Innertube endpoints (`/youtubei/v1/search`, `/youtubei/v1/browse`, `/youtubei/v1/next`).
+* **Authentication:** Unauthenticated / Anonymous. No OAuth tokens or session cookies required.
+* **Context Payload:** Sends lightweight client identification payloads (e.g., `clientName: "ANDROID"`, `clientVersion: "19.x"`) paired with dynamically generated `X-Goog-Visitor-Id` headers.
+* **Design Pattern:** Implemented as a modular Provider Adapter. Isolate parsing logic behind an interface so YouTube schema changes do not impact application state.
+* **Quota Cost:** 0 units (bypasses YouTube Data API v3 quotas entirely).
+
+---
+
+## 2. Playback & Stream Extraction Layer (Direct CDN Extraction)
+* **Mechanics:** Queries `/youtubei/v1/player` to retrieve media streaming manifests.
+* **Cipher Decryption:** Evaluates signature challenges (n-parameter / sig ciphers) locally to extract raw `googlevideo.com` CDN stream URLs (DASH `.mpd`, HLS `.m3u8`, or progressive MP4).
+* **Anti-Bot & PoToken:** Executes embedded client-side challenges to generate Proof-of-Origin (PoToken) parameters required to prevent 403 playback throttling.
+* **Media Handling:** Feeds raw stream URLs directly to native players (e.g., ExoPlayer) for background playback and native HTTP down loaders for offline storage.
+
+---
+
+## 3. User Data & State Management Layer (Local-First + Optional Sync)
+* **Primary Store (Local-First):**
+  * Subscriptions, custom playlists, watch history, and download metadata are stored locally in an on-device database (SQLite / Room).
+  * Supports OPML / JSON import/export for account-free migration.
+* **Secondary Store (Optional API v3 Bridge):**
+  * Optional Google OAuth 2.0 PKCE authentication for users who want YouTube account synchronization.
+  * Executes playlist/subscription read-writes via official YouTube Data API v3 using the individual user's access token (isolating quota usage per user).
+  * Strictly separated from playback and media extraction engines to avoid account flags.
+
+---
+
+## 4. Key Architectural Boundaries
+1. Fully Client-Side: Operates entirely on the user's device without third-party proxies (Piped, Invidious) or self-hosted backend VPS services.
+2. Strict Pipeline Isolation: API v3 is restricted strictly to account state sync; Innertube handles content discovery and stream resolution.
+3. Decoupled Extraction Engine: The stream deciphering module is decoupled from the UI, allowing runtime script updates or JS engine evaluation when YouTube rotates cipher algorithms.

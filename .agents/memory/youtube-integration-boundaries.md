@@ -1,22 +1,21 @@
 ---
 name: YouTube integration boundaries
-description: Durable constraints for Vyde's official YouTube integration and production claims.
+description: Core architectural requirements and milestones for Vyde as a full client-side YouTube app.
 ---
 
-Vyde currently uses a configurable Piped-compatible server adapter for anonymous discovery, details, comments, and native playback candidates. The default endpoint is a third-party public instance, not an availability commitment or policy approval. It can observe forwarded search terms and video IDs.
+Vyde is a dark-first, privacy-respecting client-side YouTube alternative application inspired by NewPipe, LibreTube, and Piped.
 
-**Why:** The user wants real client-style YouTube browsing and video access rather than seeded demo content. A public provider demonstrates that path but has independent privacy, reliability, and policy risks.
+**Core Architecture & Vision:**
+1. **Discovery**: Direct client-side InnerTube requests (`/youtubei/v1/browse`, `/youtubei/v1/search`) using mobile client contexts (`ANDROID`, `IOS`) without consuming official Data API v3 quotas.
+2. **Playback**: In-app native video and audio playback using `expo-video` backed by InnerTube player stream resolution (`/youtubei/v1/player`). Streams include adaptive HLS manifests, progressive MP4s, and adaptive audio formats with multi-client fallbacks (`ANDROID`, `IOS`, `TV_EMBEDDED`, `WEB`).
+3. **Offline Media**: Local sandboxed download manager using `expo-file-system` and `expo-sharing` supporting video and audio-only formats, download progress, and OS share-sheet exports.
+4. **Local-First State**: Device-local persistence for watch history, liked videos, saved videos, local playlists, and local subscriptions.
+5. **Account Bridge (Optional)**: Optional Google OAuth 2.0 PKCE authentication for syncing playlists, likes, and subscriptions via YouTube Data API v3, isolated strictly to authenticated user actions.
 
-**How to apply:** Keep the provider replaceable, surface failures without fake data, review operator authorization, terms, privacy, and uptime before release, and never send user credentials to the anonymous provider.
-
-Native playback accepts only HTTPS HLS candidates or progressive MP4 candidates that the provider marks as containing audio. Vyde does not decipher signatures/ciphers, fetch player JavaScript, generate PoTokens, or combine separate audio and video tracks; it falls back to the official YouTube watch page when needed.
-
-**Why:** Those extraction paths and playback candidates are not yet confirmed as reliable, device-compatible, or authorized for this app.
-
-**How to apply:** Keep candidate URIs out of UI, logs, and persistent state. Keep background playback, now-playing controls, caching, and downloads disabled until physical-device validation and a separate policy decision are complete.
-
-Likes, saves, playlists, and history are device-local; YouTube account sync is not implemented.
-
-**Why:** Local Vyde state and YouTube account data have different ownership and authentication boundaries.
-
-**How to apply:** Do not describe local collections as YouTube-synced, and keep any future OAuth account connection separate from anonymous discovery.
+**Execution Milestones:**
+- Phase 0: Cleanup, remove defensive rationalizations, establish local-first portability.
+- Phase 1: Reliable client-side InnerTube discovery and in-app native video playback.
+- Phase 2: Full player UX (gestures for volume/brightness, seek ripples, aspect ratio, quality/speed controls).
+- Phase 3: Sandboxed download manager with progress tracking and export.
+- Phase 4: Local subscriptions, playlist management, and optional Google OAuth 2.0 PKCE.
+- Phase 5: Documentation and cross-platform verification.

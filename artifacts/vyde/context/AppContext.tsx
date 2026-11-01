@@ -23,11 +23,26 @@ export interface LocalHistoryItem {
   lastWatchedAt: number;
 }
 
+export interface OfflineDownloadItem {
+  videoId: string;
+  title: string;
+  channel: string;
+  thumbnail: string;
+  duration?: string | null;
+  uri?: string;
+  fileSize?: string;
+  format: 'mp4' | 'audio';
+  status: 'queued' | 'downloading' | 'completed' | 'failed';
+  progress: number;
+  downloadedAt: number;
+}
+
 interface AppContextType {
   playlists: Playlist[];
   likedVideoIds: string[];
   savedVideoIds: string[];
   history: LocalHistoryItem[];
+  downloads: OfflineDownloadItem[];
   videoCatalog: Record<string, LocalVideoMetadata>;
   isHydrated: boolean;
   storageError: string | null;
@@ -38,6 +53,9 @@ interface AppContextType {
   addVideoToPlaylist: (playlistId: string, videoId: string) => void;
   removeVideoFromPlaylist: (playlistId: string, videoId: string) => void;
   deletePlaylist: (playlistId: string) => void;
+  addDownload: (item: Omit<OfflineDownloadItem, 'downloadedAt'>) => void;
+  removeDownload: (videoId: string) => void;
+  updateDownloadProgress: (videoId: string, progress: number, status?: OfflineDownloadItem['status']) => void;
   clearHistory: () => void;
   clearLocalData: () => void;
 }
@@ -48,6 +66,7 @@ const STORAGE_KEYS = {
   liked: 'vyde_local_liked_v1',
   saved: 'vyde_local_saved_v1',
   history: 'vyde_local_history_v1',
+  downloads: 'vyde_local_downloads_v1',
   catalog: 'vyde_local_video_catalog_v1',
 } as const;
 
@@ -105,6 +124,29 @@ function readHistory(value: string | null): LocalHistoryItem[] {
   });
 }
 
+function readDownloads(value: string | null): OfflineDownloadItem[] {
+  const parsed = parseStored(value);
+  if (!Array.isArray(parsed)) return [];
+  return parsed.flatMap((item): OfflineDownloadItem[] => {
+    if (!item || typeof item !== 'object') return [];
+    const dl = item as Record<string, unknown>;
+    if (typeof dl.videoId !== 'string' || typeof dl.title !== 'string') return [];
+    return [{
+      videoId: dl.videoId,
+      title: dl.title,
+      channel: typeof dl.channel === 'string' ? dl.channel : '',
+      thumbnail: typeof dl.thumbnail === 'string' ? dl.thumbnail : '',
+      duration: typeof dl.duration === 'string' ? dl.duration : null,
+      uri: typeof dl.uri === 'string' ? dl.uri : undefined,
+      fileSize: typeof dl.fileSize === 'string' ? dl.fileSize : undefined,
+      format: dl.format === 'audio' ? 'audio' : 'mp4',
+      status: typeof dl.status === 'string' ? (dl.status as OfflineDownloadItem['status']) : 'completed',
+      progress: typeof dl.progress === 'number' ? dl.progress : 1,
+      downloadedAt: typeof dl.downloadedAt === 'number' ? dl.downloadedAt : Date.now(),
+    }];
+  });
+}
+
 function readCatalog(value: string | null): Record<string, LocalVideoMetadata> {
   const parsed = parseStored(value);
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
@@ -127,17 +169,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [likedVideoIds, setLikedVideoIds] = useState<string[]>([]);
   const [savedVideoIds, setSavedVideoIds] = useState<string[]>([]);
   const [history, setHistory] = useState<LocalHistoryItem[]>([]);
+  const [downloads, setDownloads] = useState<OfflineDownloadItem[]>([]);
   const [videoCatalog, setVideoCatalog] = useState<Record<string, LocalVideoMetadata>>({});
   const [hydrated, setHydrated] = useState(false);
   const [storageError, setStorageError] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all(Object.values(STORAGE_KEYS).map(key => AsyncStorage.getItem(key)))
-      .then(([storedPlaylists, storedLiked, storedSaved, storedHistory, storedCatalog]) => {
+      .then(([storedPlaylists, storedLiked, storedSaved, storedHistory, storedDownloads, storedCatalog]) => {
         setPlaylists(readPlaylists(storedPlaylists));
         setLikedVideoIds(readStringIds(storedLiked));
         setSavedVideoIds(readStringIds(storedSaved));
         setHistory(readHistory(storedHistory));
+        setDownloads(readDownloads(storedDownloads));
         setVideoCatalog(readCatalog(storedCatalog));
       })
       .catch(() => setStorageError('Local data could not be loaded from this device.'))
@@ -153,6 +197,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => { if (hydrated) persist(STORAGE_KEYS.liked, likedVideoIds); }, [likedVideoIds, hydrated, persist]);
   useEffect(() => { if (hydrated) persist(STORAGE_KEYS.saved, savedVideoIds); }, [savedVideoIds, hydrated, persist]);
   useEffect(() => { if (hydrated) persist(STORAGE_KEYS.history, history); }, [history, hydrated, persist]);
+  useEffect(() => { if (hydrated) persist(STORAGE_KEYS.downloads, downloads); }, [downloads, hydrated, persist]);
   useEffect(() => { if (hydrated) persist(STORAGE_KEYS.catalog, videoCatalog); }, [videoCatalog, hydrated, persist]);
 
   const toggleLike = useCallback((videoId: string) =>
@@ -205,6 +250,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setPlaylists(previous => previous.filter(playlist => playlist.id !== playlistId));
   }, []);
 
+  const addDownload = useCallback((item: Omit<OfflineDownloadItem, 'downloadedAt'>) => {
+    setDownloads(prev => [
+      { ...item, downloadedAt: Date.now() },
+      ...prev.filter(d => d.videoId !== item.videoId),
+    ]);
+  }, []);
+
+  const removeDownload = useCallback((videoId: string) => {
+    setDownloads(prev => prev.filter(d => d.videoId !== videoId));
+  }, []);
+
+  const updateDownloadProgress = useCallback((videoId: string, progress: number, status?: OfflineDownloadItem['status']) => {
+    setDownloads(prev => prev.map(d => {
+      if (d.videoId !== videoId) return d;
+      return {
+        ...d,
+        progress,
+        ...(status ? { status } : {}),
+      };
+    }));
+  }, []);
+
   const clearHistory = useCallback(() => setHistory([]), []);
 
   const clearLocalData = useCallback(() => {
@@ -212,6 +279,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setLikedVideoIds([]);
     setSavedVideoIds([]);
     setHistory([]);
+    setDownloads([]);
     setVideoCatalog({});
   }, []);
 
@@ -220,6 +288,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     likedVideoIds,
     savedVideoIds,
     history,
+    downloads,
     videoCatalog,
     isHydrated: hydrated,
     storageError,
@@ -230,12 +299,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     addVideoToPlaylist,
     removeVideoFromPlaylist,
     deletePlaylist,
+    addDownload,
+    removeDownload,
+    updateDownloadProgress,
     clearHistory,
     clearLocalData,
   }), [
-    playlists, likedVideoIds, savedVideoIds, history, videoCatalog, hydrated, storageError,
+    playlists, likedVideoIds, savedVideoIds, history, downloads, videoCatalog, hydrated, storageError,
     toggleLike, toggleSave, recordHistory, createPlaylist, addVideoToPlaylist,
-    removeVideoFromPlaylist, deletePlaylist, clearHistory, clearLocalData,
+    removeVideoFromPlaylist, deletePlaylist, addDownload, removeDownload, updateDownloadProgress,
+    clearHistory, clearLocalData,
   ]);
 
   return (

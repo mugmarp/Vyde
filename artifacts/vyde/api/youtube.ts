@@ -1,11 +1,16 @@
 /**
- * Vyde's normalized YouTube-compatible provider API.
- *
- * The API server uses the configured Piped backend for discovery, video
- * details, related videos, comments, and native playback sources. Media source
- * URIs are passed only to the native player; screens must never render or log
- * them.
+ * Vyde Unified YouTube Provider API
+ * Direct Client-Side InnerTube Integration with Server Fallback
  */
+
+import { Platform } from 'react-native';
+import {
+  extractBrowse,
+  extractSearch,
+  extractPlayer,
+  extractComments,
+} from '@/services/innertube';
+
 export interface LiveVideo {
   id: string;
   title: string;
@@ -21,8 +26,13 @@ export interface LiveVideo {
 
 export interface NativePlaybackSource {
   uri: string;
-  contentType: 'progressive' | 'hls';
+  contentType: 'progressive' | 'hls' | 'audio';
   qualityLabel: string;
+  bitrate?: number;
+  width?: number;
+  height?: number;
+  contentLength?: string;
+  isAdaptive?: boolean;
 }
 
 export interface LiveVideoDetails extends LiveVideo {
@@ -50,110 +60,128 @@ export interface LiveComments {
   items: LiveComment[];
 }
 
-function apiBase() {
-  const domain = process.env.EXPO_PUBLIC_DOMAIN;
-  if (!domain) throw new Error('EXPO_PUBLIC_DOMAIN is not configured.');
-  return `https://${domain}/api/youtube`;
-}
-
-function httpsUri(value: unknown): string {
-  if (typeof value !== 'string') return '';
-  try {
-    const uri = new URL(value);
-    return uri.protocol === 'https:' ? uri.toString() : '';
-  } catch {
-    return '';
+function getApiBase(): string | null {
+  const domain = process.env.EXPO_PUBLIC_API_URL || process.env.EXPO_PUBLIC_DOMAIN;
+  if (!domain) {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      return 'http://localhost:3000/api/youtube';
+    }
+    return null;
   }
+  const clean = domain.replace(/\/$/, '');
+  const prefix = clean.startsWith('http://') || clean.startsWith('https://') ? clean : `https://${clean}`;
+  return prefix.endsWith('/api/youtube') ? prefix : `${prefix}/api/youtube`;
 }
 
-async function apiGet<T>(path: string): Promise<T> {
-  const response = await fetch(`${apiBase()}${path}`);
-  const body = await response.json() as T & { message?: string };
-  if (!response.ok) throw new Error(body.message ?? 'Could not reach the video provider.');
+async function apiProxyGet<T>(path: string): Promise<T> {
+  const base = getApiBase();
+  if (!base) {
+    throw new Error('API server proxy is not configured.');
+  }
+  const response = await fetch(`${base}${path}`);
+  const body = (await response.json()) as T & { message?: string };
+  if (!response.ok) {
+    throw new Error(body.message ?? 'Proxy request failed.');
+  }
   return body;
 }
 
-export function fetchLiveFeed(region = 'UG') {
-  return apiGet<{ items: LiveVideo[]; provider: string }>(`/feed?region=${encodeURIComponent(region)}`);
+/**
+ * Fetches the live / trending feed.
+ * Executes directly via client-side InnerTube, with proxy fallback.
+ */
+export async function fetchLiveFeed(region = 'US'): Promise<{ items: LiveVideo[]; provider: string }> {
+  try {
+    const items = await extractBrowse('FEtrending');
+    if (items && items.length > 0) {
+      return { items, provider: 'innertube-direct' };
+    }
+  } catch (err) {
+    console.warn('[YouTube API] Direct InnerTube feed failed, attempting fallback...', err);
+  }
+
+  // Fallback to proxy if configured
+  try {
+    return await apiProxyGet<{ items: LiveVideo[]; provider: string }>(`/feed?region=${encodeURIComponent(region)}`);
+  } catch {
+    // If proxy also fails or not available, retry browse with FEwhat_to_watch
+    const items = await extractBrowse('FEwhat_to_watch');
+    return { items, provider: 'innertube-direct' };
+  }
 }
 
-export function searchYouTube(query: string) {
+/**
+ * Searches YouTube videos.
+ * Executes directly via client-side InnerTube, with proxy fallback.
+ */
+export async function searchYouTube(query: string): Promise<{ items: LiveVideo[]; provider: string }> {
   const normalized = query.trim();
-  if (normalized.length < 2) throw new Error('Search must be at least 2 characters.');
-  return apiGet<{ items: LiveVideo[]; provider: string }>(`/search?q=${encodeURIComponent(normalized)}`);
+  if (normalized.length < 2) {
+    throw new Error('Search must be at least 2 characters.');
+  }
+
+  try {
+    const items = await extractSearch(normalized);
+    if (items && items.length > 0) {
+      return { items, provider: 'innertube-direct' };
+    }
+  } catch (err) {
+    console.warn('[YouTube API] Direct InnerTube search failed, attempting fallback...', err);
+  }
+
+  return apiProxyGet<{ items: LiveVideo[]; provider: string }>(`/search?q=${encodeURIComponent(normalized)}`);
 }
 
-export function fetchYouTubeVideo(id: string) {
-  if (!/^[\w-]{6,20}$/.test(id)) throw new Error('Invalid YouTube video ID.');
-  return apiGet<unknown>(`/videos/${encodeURIComponent(id)}`).then(payload => {
-    if (!payload || typeof payload !== 'object') {
-      throw new Error('The video provider returned an invalid player response.');
-    }
-    const data = payload as Record<string, unknown>;
-    if (data.id !== id || typeof data.title !== 'string') {
-      throw new Error('The video provider returned invalid video details.');
-    }
+/**
+ * Fetches video details and playable streaming candidates.
+ * Executes directly via client-side InnerTube with multi-client resolution.
+ */
+export async function fetchYouTubeVideo(id: string): Promise<LiveVideoDetails> {
+  if (!/^[\w-]{6,20}$/.test(id)) {
+    throw new Error('Invalid YouTube video ID.');
+  }
 
-    const candidates = Array.isArray(data.nativePlaybackCandidates)
-      ? data.nativePlaybackCandidates.flatMap((item): NativePlaybackSource[] => {
-          if (!item || typeof item !== 'object') return [];
-          const candidate = item as Record<string, unknown>;
-          if (typeof candidate.uri !== 'string' ||
-              (candidate.contentType !== 'hls' && candidate.contentType !== 'progressive')) return [];
-          try {
-            if (new URL(candidate.uri).protocol !== 'https:') return [];
-          } catch {
-            return [];
-          }
-          return [{
-            uri: candidate.uri,
-            contentType: candidate.contentType,
-            qualityLabel: typeof candidate.qualityLabel === 'string' ? candidate.qualityLabel : 'Auto',
-          }];
-        })
-      : [];
-
-    const relatedVideos = Array.isArray(data.relatedVideos)
-      ? data.relatedVideos.flatMap((item): LiveVideo[] => {
-          if (!item || typeof item !== 'object') return [];
-          const related = item as Record<string, unknown>;
-          if (typeof related.id !== 'string' || typeof related.title !== 'string') return [];
-          return [{
-            id: related.id,
-            title: related.title,
-            description: typeof related.description === 'string' ? related.description : '',
-            channel: typeof related.channel === 'string' ? related.channel : '',
-            channelId: typeof related.channelId === 'string' ? related.channelId : '',
-            publishedAt: typeof related.publishedAt === 'string' ? related.publishedAt : '',
-            thumbnail: httpsUri(related.thumbnail),
-            watchUrl: `https://www.youtube.com/watch?v=${related.id}`,
-            views: typeof related.views === 'string' ? related.views : undefined,
-            duration: typeof related.duration === 'string' ? related.duration : null,
-          }];
-        })
-      : [];
-
+  try {
+    const details = await extractPlayer(id);
     return {
-      id,
-      title: data.title,
-      description: typeof data.description === 'string' ? data.description : '',
-      channel: typeof data.channel === 'string' ? data.channel : '',
-      channelId: typeof data.channelId === 'string' ? data.channelId : '',
-      publishedAt: typeof data.publishedAt === 'string' ? data.publishedAt : '',
-      thumbnail: httpsUri(data.thumbnail),
-      watchUrl: `https://www.youtube.com/watch?v=${id}`,
-      views: typeof data.views === 'string' ? data.views : '0',
-      likes: typeof data.likes === 'string' ? data.likes : '0',
-      duration: typeof data.duration === 'string' ? data.duration : null,
-      nativePlaybackCandidates: candidates,
-      relatedVideos,
-      livestream: data.livestream === true,
-      provider: typeof data.provider === 'string' ? data.provider : 'unknown',
-    } satisfies LiveVideoDetails;
-  });
+      ...details,
+      nativePlaybackCandidates: details.nativePlaybackCandidates.map(c => ({
+        uri: c.uri,
+        contentType: c.contentType,
+        qualityLabel: c.qualityLabel,
+        bitrate: c.bitrate,
+        width: c.width,
+        height: c.height,
+        contentLength: c.contentLength,
+        isAdaptive: c.isAdaptive,
+      })),
+      provider: 'innertube-direct',
+    };
+  } catch (err) {
+    console.warn('[YouTube API] Direct InnerTube player failed, attempting proxy fallback...', err);
+  }
+
+  // Fallback to proxy
+  const payload = await apiProxyGet<LiveVideoDetails>(`/videos/${encodeURIComponent(id)}`);
+  return payload;
 }
 
-export function fetchYouTubeComments(id: string) {
-  if (!/^[\w-]{6,20}$/.test(id)) throw new Error('Invalid YouTube video ID.');
-  return apiGet<LiveComments>(`/comments/${encodeURIComponent(id)}`);
+/**
+ * Fetches comments for a video.
+ */
+export async function fetchYouTubeComments(id: string): Promise<LiveComments> {
+  if (!/^[\w-]{6,20}$/.test(id)) {
+    throw new Error('Invalid YouTube video ID.');
+  }
+
+  try {
+    const result = await extractComments(id);
+    if (result && result.items.length > 0) {
+      return result;
+    }
+  } catch (err) {
+    console.warn('[YouTube API] Direct InnerTube comments failed, attempting proxy fallback...', err);
+  }
+
+  return apiProxyGet<LiveComments>(`/comments/${encodeURIComponent(id)}`);
 }

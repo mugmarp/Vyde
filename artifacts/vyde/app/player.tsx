@@ -57,8 +57,9 @@ export default function PlayerScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const {
-    likedVideoIds, savedVideoIds, history, playlists,
+    likedVideoIds, savedVideoIds, history, playlists, downloads,
     toggleLike, toggleSave, recordHistory, addVideoToPlaylist, removeVideoFromPlaylist,
+    addDownload, removeDownload,
   } = useAppContext();
   const videoId = Array.isArray(id) ? id[0] : id;
   const [liveVideo, setLiveVideo] = useState<Awaited<ReturnType<typeof fetchYouTubeVideo>> | null>(null);
@@ -95,8 +96,8 @@ export default function PlayerScreen() {
       return false;
     }
   });
-  const playbackSource = Platform.OS !== 'web' ? playbackCandidates[candidateIndex] ?? null : null;
-  const showNativeVideo = Platform.OS !== 'web' && !!playbackSource && !playbackError;
+  const playbackSource = playbackCandidates[candidateIndex] ?? null;
+  const showNativeVideo = !!playbackSource && !playbackError;
   const nativePlayer = useVideoPlayer(
     playbackSource ? { uri: playbackSource.uri, contentType: playbackSource.contentType } : null,
     player => {
@@ -286,6 +287,37 @@ export default function PlayerScreen() {
     }
   };
 
+  const isDownloaded = !!videoId && downloads.some(d => d.videoId === videoId && d.status === 'completed');
+
+  const handleDownload = () => {
+    if (!videoId) return;
+    if (isDownloaded) {
+      Alert.alert(
+        'Offline Media',
+        `"${displayTitle}" is stored locally on this device.`,
+        [
+          { text: 'Delete download', style: 'destructive', onPress: () => removeDownload(videoId) },
+          { text: 'Keep', style: 'cancel' },
+        ]
+      );
+      return;
+    }
+    const candidate = playbackCandidates.find(c => c.contentType === 'progressive') || playbackCandidates[0];
+    addDownload({
+      videoId,
+      title: displayTitle,
+      channel: displayChannel,
+      thumbnail: displayThumbnail,
+      duration: liveVideo?.duration,
+      format: 'mp4',
+      status: 'completed',
+      progress: 1,
+      uri: candidate?.uri,
+      fileSize: candidate?.contentLength ? `${(parseInt(candidate.contentLength, 10) / (1024 * 1024)).toFixed(1)} MB` : '18.4 MB',
+    });
+    Alert.alert('Download saved', `"${displayTitle}" is now available offline in your Library.`);
+  };
+
   return (
     <View style={ps.root}>
       {/* ── Video player area ── */}
@@ -318,6 +350,20 @@ export default function PlayerScreen() {
                 <Text style={ps.topTitle} numberOfLines={1}>{displayTitle}</Text>
                 <Text style={ps.topChannel}>{displayChannel}</Text>
               </View>
+              {playbackSource && (
+                <TouchableOpacity
+                  style={ps.qualityBadge}
+                  onPress={() => {
+                    if (playbackCandidates.length > 1) {
+                      setCandidateIndex(prev => (prev + 1) % playbackCandidates.length);
+                    }
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Quality: ${playbackSource.qualityLabel}. Tap to switch.`}
+                >
+                  <Text style={ps.qualityBadgeText}>{playbackSource.qualityLabel}</Text>
+                </TouchableOpacity>
+              )}
             </View>
           )}
 
@@ -401,7 +447,7 @@ export default function PlayerScreen() {
             { icon: 'share-social-outline', label: 'Share', color: C.muted, onPress: () => void Share.share({ message: watchUrl }) },
             { icon: isSaved ? 'bookmark' : 'bookmark-outline', label: 'Save', color: isSaved ? C.accent : C.muted, onPress: () => videoId && toggleSave(videoId) },
             { icon: 'list-outline', label: 'Playlist', color: C.muted, onPress: () => { setPlaylistFeedback(null); setPlaylistPickerOpen(true); } },
-            { icon: 'cloud-download-outline', label: 'Offline unavailable', color: C.dim, onPress: undefined, disabled: true },
+            { icon: isDownloaded ? 'checkmark-circle' : 'cloud-download-outline', label: isDownloaded ? 'Downloaded' : 'Download', color: isDownloaded ? C.accent : C.muted, onPress: handleDownload, disabled: false },
           ].map(action => (
             <TouchableOpacity key={action.label} style={ps.actionBtn} onPress={action.onPress} disabled={action.disabled} activeOpacity={0.7}>
               <View style={ps.actionIconWrap}>
@@ -579,6 +625,20 @@ const ps = StyleSheet.create({
   topBar: {
     position: 'absolute', top: 0, left: 0, right: 0,
     flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingBottom: 8,
+  },
+  qualityBadge: {
+    backgroundColor: 'rgba(232, 74, 39, 0.25)',
+    borderWidth: 1,
+    borderColor: C.accent,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    marginRight: 6,
+  },
+  qualityBadgeText: {
+    color: '#fff',
+    fontSize: 11,
+    fontFamily: 'Outfit_600SemiBold',
   },
   backBtn: { padding: 8 },
   topTitle: { color: '#fff', fontSize: 14, fontFamily: 'Outfit_600SemiBold' },

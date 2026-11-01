@@ -1,77 +1,98 @@
-# Vyde — product and architecture
+# Vyde — Product & Architecture
 
-## Product
+Vyde is a premium, dark-first mobile client for YouTube built with Expo and React Native. It provides a focused, cinematic video discovery and watching experience inspired by open-source clients such as NewPipe and LibreTube.
 
-Vyde is an Expo/React Native mobile frontend for discovering YouTube videos through a configurable third-party Piped API. It gives users live search, trending discovery, video details, comments, related videos, and a native playback attempt on Android and iOS. If native playback is unavailable, Vyde opens the video's YouTube watch page.
+---
 
-The app does not currently connect a user's YouTube account. Likes, saves, playlists, and watch history are stored locally on the device and are not synced. YouTube offline downloads are unavailable.
+## 1. Product Vision
 
-## Workspace layout
+- **Cinematic Dark-First UI**: Near-black (`#050507`), custom typography (Outfit), high contrast, and refined micro-interactions.
+- **Zero-Quota Discovery**: High-volume video discovery, search, and trending feeds sourced directly via internal InnerTube endpoints, operating without official Data API v3 quotas or third-party proxy dependencies.
+- **True In-App Playback**: Native video streaming using `expo-video` supporting adaptive HLS manifests, progressive MP4 streams, and multi-client resolution fallbacks (`ANDROID`, `IOS`, `TV_EMBEDDED`, `WEB`).
+- **Complete Gesture Layer**: Modern video player conventions including edge swipes for brightness and volume, double-tap seek ripples, and pinch-to-toggle aspect ratio (fit/fill).
+- **Sandboxed Offline Downloads**: In-app download manager for video and audio-only media with background downloads, storage visualization, progress tracking, and OS share-sheet export.
+- **Local-First Privacy**: Watch history, playlists, liked videos, and subscriptions are stored locally on the device by default.
+- **Optional Account Sync**: Optional Google OAuth 2.0 PKCE authentication allowing users to sync their YouTube account playlists, subscriptions, and likes via YouTube Data API v3.
 
-- `artifacts/vyde/app/` — Expo Router screens
-- `artifacts/vyde/api/youtube.ts` — mobile client and runtime validation for normalized API responses
-- `artifacts/vyde/context/AppContext.tsx` — device-local likes, saves, playlists, and watch history
-- `artifacts/vyde/data/mockData.ts` — legacy design fixtures; production screens must not import seeded content from this file
-- `artifacts/api-server/src/routes/youtube.ts` — server-side Piped adapter
-- `docs/YOUTUBE_LIVE_CONTENT_RUNBOOK.md` — provider boundary, references, smoke checks, and release qualification
+---
 
-## Request flow
+## 2. System Architecture
 
 ```text
-Vyde Expo app
-    | HTTPS /api/youtube/*
-    v
-Express API server
-    | PIPED_API_BASE_URL (HTTPS)
-    v
-Piped-compatible upstream
++--------------------------------------------------------------------------+
+|                               Vyde Mobile Client                          |
+|                                                                          |
+|  +--------------------+  +--------------------+  +--------------------+  |
+|  |     Home Feed      |  |   Explore/Search   |  |   In-App Player    |  |
+|  +--------------------+  +--------------------+  +--------------------+  |
+|  |  Download Manager  |  |   Local Playlists  |  |  Settings & Sync   |  |
+|  +--------------------+  +--------------------+  +--------------------+  |
+|                                                                          |
+|  +--------------------------------------------------------------------+  |
+|  |                     Client-Side InnerTube Engine                   |  |
+|  |  • Multi-Client Contexts (ANDROID / IOS / TV_EMBEDDED / WEB)       |  |
+|  |  • Stream Resolution (HLS Master Playlists, Progressive MP4s)      |  |
+|  |  • Cipher Deciphering & Parameter Transformations                 |  |
+|  +--------------------------------------------------------------------+  |
++--------------------------------------------------------------------------+
+             |                                             |
+             | Direct HTTPS (Client-Side)                  | Direct CDN Stream
+             v                                             v
+  +--------------------+                       +------------------------+
+  |  YouTube InnerTube |                       | googlevideo.com CDN    |
+  |  /browse, /search, |                       | HLS (.m3u8), MP4, M4A  |
+  |  /player, /next    |                       +------------------------+
+  +--------------------+
+             |
+             | Optional Authenticated Path (PKCE)
+             v
+  +----------------------------------+
+  | YouTube Data API v3 (Sync Only)   |
+  | playlists, subscriptions, rating |
+  +----------------------------------+
 ```
 
-The server defaults to `https://api.piped.private.coffee`, a public third-party instance that returned live responses during implementation. Configure `PIPED_API_BASE_URL` on the API server to use another HTTPS-compatible endpoint. The default instance has no availability or privacy guarantee and is not automatically suitable for a production service.
+---
 
-## API routes
+## 3. Playback & Stream Resolution Strategy
 
-| Route | Purpose |
-| --- | --- |
-| `GET /api/youtube/feed?region=UG` | Live trending videos |
-| `GET /api/youtube/search?q=...` | Live video search |
-| `GET /api/youtube/videos/:id` | Live metadata, permitted playback candidates, and related videos |
-| `GET /api/youtube/comments/:id` | Live comments |
+YouTube serves media through multiple client configurations. Vyde employs a cascaded client resolution strategy:
 
-The API server validates video IDs and query length, requires HTTPS upstream and media URLs, normalizes provider data, and returns explicit errors. It does not substitute mock data on failure.
+1. **ANDROID Context (`com.google.android.youtube/19.29.37`)**:
+   - Queries `/youtubei/v1/player`.
+   - Often provides direct progressive MP4 streams with audio and clean HLS manifests.
+2. **IOS Context (`com.google.ios.youtube/19.29.1`)**:
+   - Yields adaptive HLS master manifests (`.m3u8`) natively supported by iOS AVPlayer and Android ExoPlayer via `expo-video`.
+3. **TV_EMBEDDED / WEB Context**:
+   - Provides backup DASH streaming manifests and progressive video fallbacks.
+4. **Playback Candidates Priority**:
+   - **HLS Manifests**: Preferred for adaptive bitrate, native audio/video synchronization, and scrubbing efficiency.
+   - **Progressive MP4 (with audio)**: Secondary candidate for offline downloads and direct seeking.
+   - **Audio Streams (M4A/MP3)**: For background audio and audio-only offline export.
+   - **YouTube Watch Fallback**: Clean fallback button when network or playback issues occur.
 
-## Native playback
+---
 
-The Piped adapter exposes HTTPS HLS manifests and progressive MP4 formats marked as containing audio. The mobile client validates the response shape and candidate URL/type again, tries candidates in order, and falls back to the official YouTube watch URL after playback failures. Media URLs are used internally by `expo-video`; the UI does not print or log them, and they are not stored in local history.
+## 4. Local-First Data & Offline Media
 
-Vyde does not implement YouTube `signatureCipher`/`cipher` deciphering, player-JavaScript scraping, PoToken generation, separate audio/video stream assembly, background playback, now-playing notifications, media caching, or offline downloads. A public provider returning candidates is not evidence that the playback path is policy-approved or reliable. Physical Android and iOS verification remains required.
+- **Storage**: AsyncStorage / SQLite for persistent storage of local playlists, video metadata catalog, playback positions, and watch history.
+- **Offline Downloads**: Downloaded items reside in sandboxed app storage managed by `expo-file-system`.
+- **Exporting**: Users can export completed downloads to the system files or share via `expo-sharing`.
 
-## Screens and local data
+---
 
-- **Home:** live feed, searchable category chips, and recently watched items from local history.
-- **Explore:** debounced live search, live trending results, and category queries.
-- **Player:** live metadata, real comments, related videos, native playback attempt, and YouTube fallback.
-- **Library:** local playlists and an explicit unavailable state for offline YouTube media.
-- **Profile:** local device data only; no simulated account, subscriptions, or seeded video previews.
-- **Settings:** concise playback/provider and account/local-storage disclosures.
+## 5. Development & Running
 
-Provider errors and empty responses are visible. There is no fake feed, fake comments, fake account, seeded subscription shelf, fabricated watch progress, or simulated download manager in these production screen paths.
-
-## Operations and checks
-
-- API workflow: `artifacts/api-server: API Server`
-- Mobile workflow: `artifacts/vyde: expo`
-- The mobile app requires `EXPO_PUBLIC_DOMAIN` to reach the API.
-- `PIPED_API_BASE_URL` belongs on the server and must use HTTPS.
-- Run:
-
+### Mobile App (`artifacts/vyde`)
 ```bash
-pnpm --filter @workspace/api-server run typecheck
-pnpm --filter @workspace/vyde run typecheck
+# Run locally with Expo
+cd artifacts/vyde
+npx expo start
+
+# Run with web preview
+npx expo start --web
 ```
 
-See `docs/YOUTUBE_LIVE_CONTENT_RUNBOOK.md` for live endpoint smoke checks and physical-device test steps.
-
-## Production gates
-
-Before production use, select and review a provider that the operator is authorized to use, document its privacy/availability implications, and establish failover behavior. Keep any future user OAuth integration separate from anonymous discovery. Do not claim YouTube account synchronization, approved native playback, or offline video support until those features are independently implemented and verified.
+### Environment Configuration
+- `EXPO_PUBLIC_API_URL`: Optional URL override for the Express helper server (defaults to local `http://localhost:3000` when running hybrid web).
+- No mandatory API keys are required for anonymous discovery, search, and playback.

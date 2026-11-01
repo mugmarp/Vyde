@@ -1,1 +1,1 @@
-- [YouTube integration boundaries](youtube-integration-boundaries.md) — Vyde uses a replaceable Piped-compatible server for anonymous content; it is not a reliability or policy guarantee.
+- [YouTube integration boundaries](youtube-integration-boundaries.md) — Architecture and roadmap for Vyde as a full client-side YouTube app (InnerTube discovery, native playback, offline downloads).
