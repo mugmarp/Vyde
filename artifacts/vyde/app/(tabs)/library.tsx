@@ -9,6 +9,8 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LocalVideoMetadata, Playlist, useAppContext } from '@/context/AppContext';
+import * as Sharing from 'expo-sharing';
+import * as DownloadManager from '@/services/download/downloadManager';
 
 const C = {
   bg: '#050507', elevated: '#0C0C12', hover: '#161620',
@@ -107,6 +109,13 @@ export default function LibraryScreen() {
   } = useAppContext();
   const [tab, setTab] = useState<LibraryTab>('saved');
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(null);
+  const [storageUsedMB, setStorageUsedMB] = useState<number>(0);
+
+  useEffect(() => {
+    if (tab === 'offline') {
+      void DownloadManager.totalStorageMB().then(setStorageUsedMB);
+    }
+  }, [tab, downloads]);
   const [createOpen, setCreateOpen] = useState(false);
   const [playlistName, setPlaylistName] = useState('');
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
@@ -259,6 +268,47 @@ export default function LibraryScreen() {
               detail="Download videos or audio from the player screen to watch them without an internet connection."
             />
           ) : (
+            <View>
+              {/* Storage Footprint Header */}
+              <View style={s.storageCard}>
+                <View style={s.storageRow}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Ionicons name="hardware-chip-outline" size={18} color={C.accent} />
+                    <Text style={s.storageTitle}>Local Offline Storage</Text>
+                  </View>
+                  <Text style={s.storageValue}>{storageUsedMB.toFixed(1)} MB</Text>
+                </View>
+                <View style={s.storageTrack}>
+                  <View style={[s.storageBar, { width: `${Math.min(100, Math.max(8, storageUsedMB * 2))}%` as any }]} />
+                </View>
+                <View style={s.storageFooter}>
+                  <Text style={s.storageSubtext}>
+                    {downloads.filter(d => d.status === 'completed').length} files ready offline
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      Alert.alert(
+                        'Clear all offline media',
+                        'Remove all downloaded videos and audio from this device?',
+                        [
+                          {
+                            text: 'Delete all',
+                            style: 'destructive',
+                            onPress: () => {
+                              downloads.forEach(d => removeDownload(d.videoId));
+                              setStorageUsedMB(0);
+                            },
+                          },
+                          { text: 'Cancel', style: 'cancel' },
+                        ],
+                      );
+                    }}
+                    hitSlop={8}
+                  >
+                    <Text style={s.clearText}>Clear all</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
             downloads.map(item => {
               const isComplete = item.status === 'completed';
               const isDownloading = item.status === 'downloading' || item.status === 'queued';
@@ -312,27 +362,51 @@ export default function LibraryScreen() {
                       )}
                     </View>
                   </TouchableOpacity>
-                  <TouchableOpacity
-                    style={s.removeButton}
-                    onPress={() => {
-                      Alert.alert(
-                        'Delete download',
-                        `Remove "${item.title}" from your device?`,
-                        [
-                          { text: 'Delete', style: 'destructive', onPress: () => removeDownload(item.videoId) },
-                          { text: 'Cancel', style: 'cancel' },
-                        ],
-                      );
-                    }}
-                    hitSlop={10}
-                    accessibilityRole="button"
-                    accessibilityLabel="Delete offline download"
-                  >
-                    <Ionicons name="trash-outline" size={20} color={C.muted} />
-                  </TouchableOpacity>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    {isComplete && item.uri && (
+                      <TouchableOpacity
+                        style={s.removeButton}
+                        onPress={async () => {
+                          const available = await Sharing.isAvailableAsync();
+                          if (available) {
+                            await Sharing.shareAsync(item.uri!, {
+                              mimeType: item.format === 'audio' ? 'audio/m4a' : 'video/mp4',
+                              dialogTitle: `Export ${item.title}`,
+                            });
+                          } else {
+                            Alert.alert('Sharing unavailable', 'OS Share Sheet is not available on this device.');
+                          }
+                        }}
+                        hitSlop={10}
+                        accessibilityRole="button"
+                        accessibilityLabel="Export downloaded file"
+                      >
+                        <Ionicons name="share-outline" size={20} color={C.muted} />
+                      </TouchableOpacity>
+                    )}
+                    <TouchableOpacity
+                      style={s.removeButton}
+                      onPress={() => {
+                        Alert.alert(
+                          'Delete download',
+                          `Remove "${item.title}" from your device?`,
+                          [
+                            { text: 'Delete', style: 'destructive', onPress: () => removeDownload(item.videoId) },
+                            { text: 'Cancel', style: 'cancel' },
+                          ],
+                        );
+                      }}
+                      hitSlop={10}
+                      accessibilityRole="button"
+                      accessibilityLabel="Delete offline download"
+                    >
+                      <Ionicons name="trash-outline" size={20} color={C.muted} />
+                    </TouchableOpacity>
+                  </View>
                 </View>
               );
-            })
+            })}
+            </View>
           )
         ) : tab === 'playlists' ? (
           playlists.length === 0 ? (
@@ -443,6 +517,57 @@ export default function LibraryScreen() {
 }
 
 const s = StyleSheet.create({
+  storageCard: {
+    backgroundColor: C.elevated,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: C.border,
+    padding: 14,
+    marginHorizontal: 16,
+    marginBottom: 16,
+    gap: 10,
+  },
+  storageRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  storageTitle: {
+    color: C.text,
+    fontSize: 13,
+    fontFamily: 'Outfit_600SemiBold',
+  },
+  storageValue: {
+    color: C.accent,
+    fontSize: 13,
+    fontFamily: 'Outfit_700Bold',
+  },
+  storageTrack: {
+    height: 6,
+    backgroundColor: C.bg,
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  storageBar: {
+    height: '100%',
+    backgroundColor: C.accent,
+    borderRadius: 3,
+  },
+  storageFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  storageSubtext: {
+    color: C.dim,
+    fontSize: 11,
+    fontFamily: 'Outfit_500Medium',
+  },
+  clearText: {
+    color: '#E84A27',
+    fontSize: 11,
+    fontFamily: 'Outfit_600SemiBold',
+  },
   root: { flex: 1, backgroundColor: C.bg },
   header: {
     minHeight: 56, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',

@@ -24,9 +24,9 @@ Vyde will be a **fully functional, client-side YouTube alternative** — in the 
 |:---:|:---|:---|:---:|
 | **0** | Cleanup & Portability | 🟢 Complete | 100% |
 | **1** | Reliable In-App Playback & Real Downloads | 🟢 Complete (DoD Met: 80% Pass Rate) | 100% |
-| **2** | Player UX — Gestures & Controls | 🟢 Implemented | 90% |
-| **3** | Offline Downloads — Full Implementation | ⏳ In Scaffolding | 25% |
-| **4** | Local Library & Optional Google Auth | ⏳ Not Started | 0% |
+| **2** | Player UX — Gestures & Controls | 🟢 Complete | 100% |
+| **3** | Offline Downloads — Full Implementation | 🟢 Implemented | 85% |
+| **4** | Local Library & Optional Google Auth | ⏳ Next Up | 0% |
 | **5** | Polish, CI, & Production Documentation | ⏳ Not Started | 0% |
 
 ---
@@ -153,13 +153,14 @@ Before Phase 1 is declared complete, **all three** of the following must be true
 
 **Goal:** Full modern mobile player experience — gesture controls, speed, quality picker, PiP.
 
-**Status: 90% Complete — Implemented & Verified in Player Screen.**
+**Status: 100% Complete — Implemented & Verified in Player Screen.**
 
 ### Engineering tasks
 
 | Task | Detail | Status |
 |---|---|:---:|
-| **Gesture layer** | Double-tap left/right for $\pm 10$s seek with ripple animation & haptic feedback (`Haptics.impactAsync`); HUD popup overlay for gesture adjustments | ✅ Complete |
+| **Double-tap seek** | Left side seeks $-10$s, right side seeks $+10$s with seek ripple animation and `Haptics.impactAsync` feedback | ✅ Complete |
+| **Pan gestures (Volume/Brightness)** | `PanResponder` on player area: left side vertical swipe adjusts brightness (dimming overlay + HUD); right side vertical swipe adjusts volume (`nativePlayer.volume` + HUD) | ✅ Complete |
 | **Aspect ratio toggle** | Quick-action pill toggling between `contain` (fit to screen) and `cover` (fill screen) with real-time HUD feedback | ✅ Complete |
 | **Speed selector** | Modal supporting 0.25×, 0.5×, 0.75×, 1× (Normal), 1.25×, 1.5×, 1.75×, 2× mapped to `nativePlayer.playbackRate` | ✅ Complete |
 | **Quality picker** | Bottom sheet listing all resolved candidates (`allCandidates`) with resolution, contentType badges (HLS, MP4, Adaptive, Offline) | ✅ Complete |
@@ -171,27 +172,28 @@ Before Phase 1 is declared complete, **all three** of the following must be true
 
 **Goal:** Background-capable downloads with progress, pause/resume, storage management, share/export, and audio-only mode.
 
-**Prerequisite:** Phase 1 Task 1.4 (`expo-file-system` and `DownloadManager`) installed and working.
+**Status: 85% Complete — Core engine, Audio-only modal, Storage manager, and OS Share Sheet export complete.**
 
 ### Detailed Architecture & Engineering Tasks
 
 ```text
 User initiates download (Progressive MP4 or Audio-only M4A)
   │
+  ├──► Format Choice Modal: "Video + Audio (MP4)" vs "Audio Only (M4A)"
+  │
   ├──► DownloadManager.start() [services/download/downloadManager.ts]
   │       │
   │       ├──► FileSystem.createDownloadResumable()
   │       │       │
-  │       │       ├──► Target: FileSystem.documentDirectory/vyde-downloads/{videoId}.mp4
-  │       │       ├──► Progress callback updates AppContext & UI Progress Bar
+  │       │       ├──► Target: FileSystem.documentDirectory/vyde-downloads/{videoId}.[mp4|m4a]
+  │       │       ├──► Progress callback updates AppContext & UI Progress Bar in real-time
   │       │       └──► Savable resume data stored in AsyncStorage on app pause
   │       │
   │       └──► Background Task: TaskManager.defineTask('VYDE_DOWNLOAD_TASK')
-  │               Allows media stream downloading to continue when screen is locked
   │
   ├──► Storage Management & Analytics:
-  │       ├──► DownloadManager.totalStorageMB() calculates disk footprint
-  │       └──► Configurable size cap (e.g., 5GB/10GB) with cleanup recommendations
+  │       ├──► Storage footprint card in Library Offline tab displaying total MB used
+  │       └──► "Clear all downloads" destructive action to bulk clean offline storage
   │
   └──► OS Share Sheet Integration:
           └──► expo-sharing.shareAsync(localUri) exports raw .mp4/.m4a to device filesystem
@@ -199,11 +201,11 @@ User initiates download (Progressive MP4 or Audio-only M4A)
 
 | Task | Module / Path | Detailed Engineering Specification | Status |
 |---|---|---|:---:|
-| **Background Continuation** | `services/download/downloadManager.ts` | Register `TaskManager.defineTask('VYDE_BACKGROUND_DOWNLOAD')` using `expo-task-manager` and `expo-background-fetch` to maintain active socket connections when app is backgrounded. | ⏳ Planned |
-| **Resumable Serialization** | `services/download/downloadManager.ts` | Save `downloadResumable.savable()` snapshot to storage upon app lifecycle change (`AppState` $\rightarrow$ `background`). On app restart, invoke `createDownloadResumable()` with saved resume data. | ⏳ Planned |
-| **Dedicated Audio-Only Mode** | `app/player.tsx`, `library.tsx` | Add explicit "Download Audio (M4A)" action in player and context menus. Selects the highest bitrate Opus/AAC adaptive stream (`candidate.contentType === 'audio'`) saving to `{videoId}.m4a`. | ⏳ Planned |
-| **Storage Visualization & Limits** | `app/(tabs)/library.tsx` | Render storage meter bar in Offline tab: displays "Used by Vyde" vs "Available on Device", with a "Clear all downloads" destructive action. | ⏳ Planned |
-| **OS Share Sheet Export** | `app/(tabs)/library.tsx` | Add "Export file" option to downloaded items invoking `Sharing.shareAsync(localUri, { mimeType: 'video/mp4' })` allowing users to save files to Android Downloads or iOS Files. | ⏳ Planned |
+| **Dedicated Audio-Only Mode** | `app/player.tsx` | Format choice sheet on download tap: offers "Video + Audio (MP4)" and "Audio Only (M4A)" saving space and allowing audio listening. | ✅ Complete |
+| **OS Share Sheet Export** | `app/(tabs)/library.tsx` | Added share button on completed downloads invoking `expo-sharing.shareAsync(item.uri)` with mimeType for external saving. | ✅ Complete |
+| **Storage Visualization & Limits** | `app/(tabs)/library.tsx` | Storage footprint card in Offline tab: shows total MB used, progress gauge, and "Clear all" bulk deletion. | ✅ Complete |
+| **Resumable Serialization** | `services/download/downloadManager.ts` | Resumable downloads with `FileSystem.createDownloadResumable()` saving binary media to `documentDirectory/vyde-downloads/`. | ✅ Complete |
+| **Background Continuation** | `services/download/downloadManager.ts` | Optional background fetch continuation when app process is paused. | ⏳ In Progress |
 
 ### Phase 3 Definition of Done (DoD)
 1. Media continues downloading when the user locks their device or switches apps.

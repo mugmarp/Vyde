@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   ActivityIndicator, Alert, Modal, View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, Dimensions, Animated, Platform, Linking, Share,
+  StyleSheet, Dimensions, Animated, Platform, Linking, Share, PanResponder,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { VideoView, useVideoPlayer } from 'expo-video';
@@ -79,6 +79,9 @@ export default function PlayerScreen() {
   const [speed, setSpeed] = useState(1.0);
   const [speedPickerOpen, setSpeedPickerOpen] = useState(false);
   const [qualityPickerOpen, setQualityPickerOpen] = useState(false);
+  const [downloadPickerOpen, setDownloadPickerOpen] = useState(false);
+  const [brightness, setBrightness] = useState(1.0);
+  const [volume, setVolume] = useState(1.0);
   const [contentFit, setContentFit] = useState<'contain' | 'cover'>('contain');
   const [hud, setHud] = useState<{ icon: string; label: string } | null>(null);
   const hudTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -98,6 +101,43 @@ export default function PlayerScreen() {
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [posterVisible, setPosterVisible] = useState(true);
   const lastProgressSavedAt = useRef(0);
+  const panStartX = useRef(0);
+  const panStartY = useRef(0);
+  const initialBrightness = useRef(1.0);
+  const initialVolume = useRef(1.0);
+
+  const playerPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        return Math.abs(gestureState.dy) > 10 || Math.abs(gestureState.dx) > 10;
+      },
+      onPanResponderGrant: (evt) => {
+        panStartX.current = evt.nativeEvent.locationX;
+        panStartY.current = evt.nativeEvent.locationY;
+        initialBrightness.current = brightness;
+        initialVolume.current = volume;
+      },
+      onPanResponderMove: (evt, gestureState) => {
+        const deltaY = -gestureState.dy; // swipe up is positive
+        const sensitivity = 0.005;
+
+        if (panStartX.current < W * 0.45) {
+          // Left side: Vertical Pan -> Brightness
+          const nextB = Math.max(0.1, Math.min(1.0, initialBrightness.current + deltaY * sensitivity));
+          setBrightness(nextB);
+          showHud('sunny-outline', `Brightness: ${Math.round(nextB * 100)}%`);
+        } else if (panStartX.current > W * 0.55) {
+          // Right side: Vertical Pan -> Volume
+          const nextV = Math.max(0.0, Math.min(1.0, initialVolume.current + deltaY * sensitivity));
+          setVolume(nextV);
+          nativePlayer.volume = nextV;
+          showHud(nextV > 0 ? 'volume-high-outline' : 'volume-mute-outline', `Volume: ${Math.round(nextV * 100)}%`);
+        }
+      },
+      onPanResponderRelease: () => {},
+    })
+  ).current;
   const lastTapRef = useRef({ time: 0, x: 0 });
   const historyRef = useRef(history);
   historyRef.current = history;
@@ -316,7 +356,7 @@ export default function PlayerScreen() {
 
   const isDownloaded = !!videoId && downloads.some(d => d.videoId === videoId && d.status === 'completed');
 
-  const handleDownload = async () => {
+  const handleDownload = () => {
     if (!videoId) return;
 
     if (isDownloaded) {
@@ -331,34 +371,45 @@ export default function PlayerScreen() {
       return;
     }
 
-    // Prefer progressive MP4 (muxed audio+video); fall back to best available candidate
-    const candidate =
-      playbackCandidates.find(c => c.contentType === 'progressive') ||
-      liveVideo?.nativePlaybackCandidates?.find(c => c.contentType === 'audio') ||
-      playbackCandidates[0];
+    setDownloadPickerOpen(true);
+  };
+
+  const triggerDownload = async (targetFormat: 'mp4' | 'audio') => {
+    setDownloadPickerOpen(false);
+    if (!videoId) return;
+
+    let candidate = null;
+    if (targetFormat === 'audio') {
+      candidate =
+        liveVideo?.nativePlaybackCandidates?.find(c => c.contentType === 'audio') ||
+        playbackCandidates.find(c => c.contentType === 'progressive');
+    } else {
+      candidate =
+        playbackCandidates.find(c => c.contentType === 'progressive') ||
+        playbackCandidates.find(c => c.contentType === 'adaptive-video') ||
+        playbackCandidates[0];
+    }
 
     if (!candidate?.uri) {
       Alert.alert(
         'No stream available',
-        'No downloadable stream was found for this video. Try again once the video loads fully.',
+        'No downloadable stream was found for this format.',
       );
       return;
     }
 
-    const isAudio = candidate.contentType === 'audio';
-    const fileName = DownloadManager.suggestFileName(videoId, isAudio ? 'audio' : 'mp4');
+    const fileName = DownloadManager.suggestFileName(videoId, targetFormat);
 
-    // Register as 'queued' immediately so the Library tab shows it
     addDownload({
       videoId,
       title: displayTitle,
       channel: displayChannel,
       thumbnail: displayThumbnail,
       duration: liveVideo?.duration,
-      format: isAudio ? 'audio' : 'mp4',
+      format: targetFormat,
       status: 'queued',
       progress: 0,
-      uri: undefined, // will be set on completion
+      uri: undefined,
       fileSize: candidate.contentLength
         ? `${(parseInt(candidate.contentLength, 10) / (1024 * 1024)).toFixed(1)} MB`
         : undefined,
@@ -374,14 +425,13 @@ export default function PlayerScreen() {
         },
         onComplete: (localUri) => {
           updateDownloadProgress(videoId, 1, 'completed');
-          // Patch the URI so the Library can play it offline
           addDownload({
             videoId,
             title: displayTitle,
             channel: displayChannel,
             thumbnail: displayThumbnail,
             duration: liveVideo?.duration,
-            format: isAudio ? 'audio' : 'mp4',
+            format: targetFormat,
             status: 'completed',
             progress: 1,
             uri: localUri,
@@ -391,7 +441,7 @@ export default function PlayerScreen() {
           });
           Alert.alert(
             'Download complete',
-            `"${displayTitle}" is now available offline in your Library.`,
+            `"${displayTitle}" (${targetFormat.toUpperCase()}) is now available in your Library.`,
           );
         },
         onError: (err) => {
@@ -435,7 +485,7 @@ export default function PlayerScreen() {
           }
         }}
       >
-        <View style={ps.player}>
+        <View style={ps.player} {...playerPanResponder.panHandlers}>
           {showNativeVideo && (
             <VideoView
               player={nativePlayer}
@@ -449,6 +499,12 @@ export default function PlayerScreen() {
             <Image source={displayThumbnail ? { uri: displayThumbnail } : undefined} style={ps.poster} contentFit="cover" />
           )}
           <LinearGradient colors={['rgba(0,0,0,0.7)', 'transparent', 'transparent', 'rgba(0,0,0,0.85)']} style={StyleSheet.absoluteFill} />
+          {brightness < 1.0 && (
+            <View
+              style={[StyleSheet.absoluteFill, { backgroundColor: '#000', opacity: 1.0 - brightness }]}
+              pointerEvents="none"
+            />
+          )}
 
           {/* Top controls */}
           {showControls && (
@@ -692,7 +748,55 @@ export default function PlayerScreen() {
         </View>
       </ScrollView>
 
-            {/* ── Speed Selector Modal ── */}
+                  {/* ── Download Format Choice Modal ── */}
+      <Modal
+        visible={downloadPickerOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setDownloadPickerOpen(false)}
+      >
+        <View style={ps.modalBackdrop}>
+          <View style={[ps.modalCard, { paddingBottom: Math.max(insets.bottom, 20) }]}>
+            <View style={ps.modalHeading}>
+              <Text style={ps.modalTitle}>Download Media</Text>
+              <TouchableOpacity onPress={() => setDownloadPickerOpen(false)} hitSlop={10}>
+                <Ionicons name="close" size={22} color={C.muted} />
+              </TouchableOpacity>
+            </View>
+            <View style={{ gap: 10, paddingVertical: 8 }}>
+              <TouchableOpacity
+                style={ps.downloadOption}
+                onPress={() => triggerDownload('mp4')}
+              >
+                <View style={[ps.downloadOptionIcon, { backgroundColor: 'rgba(232, 74, 39, 0.15)' }]}>
+                  <Ionicons name="videocam" size={22} color={C.accent} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={ps.downloadOptionTitle}>Video + Audio (MP4)</Text>
+                  <Text style={ps.downloadOptionSub}>Optimal for offline video playback</Text>
+                </View>
+                <Ionicons name="cloud-download-outline" size={20} color={C.muted} />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={ps.downloadOption}
+                onPress={() => triggerDownload('audio')}
+              >
+                <View style={[ps.downloadOptionIcon, { backgroundColor: 'rgba(76, 175, 80, 0.15)' }]}>
+                  <Ionicons name="musical-notes" size={22} color="#4CAF50" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={ps.downloadOptionTitle}>Audio Only (M4A / AAC)</Text>
+                  <Text style={ps.downloadOptionSub}>Save space & listen in the background</Text>
+                </View>
+                <Ionicons name="cloud-download-outline" size={20} color={C.muted} />
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Speed Selector Modal ── */}
       <Modal
         visible={speedPickerOpen}
         transparent
@@ -855,6 +959,33 @@ const ps = StyleSheet.create({
   topBar: {
     position: 'absolute', top: 0, left: 0, right: 0,
     flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingBottom: 8,
+  },
+  downloadOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    backgroundColor: C.bg,
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  downloadOptionIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  downloadOptionTitle: {
+    color: C.text,
+    fontSize: 14,
+    fontFamily: 'Outfit_600SemiBold',
+  },
+  downloadOptionSub: {
+    color: C.dim,
+    fontSize: 12,
+    marginTop: 2,
   },
   controlPill: {
     backgroundColor: 'rgba(255, 255, 255, 0.12)',
