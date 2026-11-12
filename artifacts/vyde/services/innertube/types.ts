@@ -4,7 +4,8 @@
 
 export interface VideoStreamCandidate {
   uri: string;
-  contentType: 'hls' | 'progressive' | 'audio';
+  /** hls = HLS manifest (.m3u8), progressive = muxed MP4, audio = audio-only adaptive, adaptive-video = video-only adaptive */
+  contentType: 'hls' | 'progressive' | 'audio' | 'adaptive-video';
   qualityLabel: string;
   bitrate?: number;
   width?: number;

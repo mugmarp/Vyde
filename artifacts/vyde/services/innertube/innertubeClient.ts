@@ -1,6 +1,7 @@
 /**
  * InnerTube Direct HTTP Client
- * Handles requests with client context injection and multi-client fallback.
+ * Handles requests with client context injection, visitorData acquisition,
+ * and multi-client cascade fallback.
  */
 
 import { Platform } from 'react-native';
@@ -12,33 +13,75 @@ import {
   buildContext,
 } from './constants';
 
+// ─── visitorData cache ────────────────────────────────────────────────────────
+
+let cachedVisitorData: string | null = null;
+let visitorDataFetchedAt = 0;
+const VISITOR_DATA_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
+
+async function acquireVisitorData(): Promise<string | null> {
+  const now = Date.now();
+  if (cachedVisitorData && now - visitorDataFetchedAt < VISITOR_DATA_TTL_MS) {
+    return cachedVisitorData;
+  }
+  try {
+    const url = `${INNERTUBE_BASE_URL}/guide`;
+    const payload = { context: buildContext(CLIENT_CONFIGS.IOS) };
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: buildHeaders(CLIENT_CONFIGS.IOS),
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) {
+      const data = await res.json() as any;
+      const vd: string | undefined =
+        data?.responseContext?.visitorData ||
+        data?.header?.pageHeaderRenderer?.visitorData;
+      if (vd) {
+        cachedVisitorData = vd;
+        visitorDataFetchedAt = now;
+        return vd;
+      }
+    }
+  } catch (err) {
+    console.warn('[InnerTube] visitorData acquisition failed:', err);
+  }
+  return null;
+}
+
+// ─── InnerTubeClient ──────────────────────────────────────────────────────────
+
 export class InnerTubeClient {
   private apiServerUrl: string | null = null;
 
   constructor() {
-    // Detect optional backend proxy URL
     const envUrl = process.env.EXPO_PUBLIC_API_URL || process.env.EXPO_PUBLIC_DOMAIN;
     if (envUrl) {
       this.apiServerUrl = envUrl.startsWith('http') ? envUrl : `https://${envUrl}`;
     } else if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      // On web preview, if port 3000 is running locally
       this.apiServerUrl = 'http://localhost:3000';
     }
   }
 
   /**
    * Executes a direct POST request to an InnerTube endpoint.
-   * If on web and CORS fails, attempts proxy via apiServerUrl if configured.
+   * Injects visitorData into the client context automatically.
+   * Falls back to CORS proxy on web if direct call fails.
    */
   async post<T>(
     endpoint: string,
     body: Record<string, unknown>,
-    clientConfig: InnerTubeClientConfig = CLIENT_CONFIGS.ANDROID,
+    clientConfig: InnerTubeClientConfig = CLIENT_CONFIGS.IOS,
   ): Promise<T> {
     const url = `${INNERTUBE_BASE_URL}/${endpoint.replace(/^\//, '')}`;
+
+    // Acquire visitorData (non-blocking — uses cached value after first fetch)
+    const visitorData = await acquireVisitorData();
+
+    const context = buildContext(clientConfig, visitorData ?? undefined);
     const payload = {
       ...body,
-      context: buildContext(clientConfig),
+      context,
     };
     const headers = buildHeaders(clientConfig);
 
@@ -54,20 +97,22 @@ export class InnerTubeClient {
         return (await response.json()) as T;
       }
 
-      // If response not ok on direct call
       const errorText = await response.text();
-      console.warn(`[InnerTube] Direct ${endpoint} failed (${response.status}):`, errorText.slice(0, 150));
+      console.warn(
+        `[InnerTube] Direct ${endpoint} failed (${response.status}):`,
+        errorText.slice(0, 200),
+      );
     } catch (directErr) {
       console.warn(`[InnerTube] Direct ${endpoint} threw:`, directErr);
 
-      // On web browser, CORS may block direct request. Try server proxy if available.
+      // On web browser, CORS may block direct request → try server proxy
       if (Platform.OS === 'web' && this.apiServerUrl) {
         try {
           const proxyUrl = `${this.apiServerUrl}/api/innertube/${endpoint.replace(/^\//, '')}`;
           const proxyRes = await fetch(proxyUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ body, clientName: clientConfig.clientName }),
+            body: JSON.stringify({ body: payload, clientName: clientConfig.clientName }),
           });
           if (proxyRes.ok) {
             return (await proxyRes.json()) as T;
@@ -84,14 +129,15 @@ export class InnerTubeClient {
   }
 
   /**
-   * Executes a multi-client cascade for endpoints like /player
+   * Executes a multi-client cascade for endpoints like /player.
+   * Returns the first successful response.
    */
   async postWithCascade<T>(
     endpoint: string,
     bodyBuilder: (config: InnerTubeClientConfig) => Record<string, unknown>,
     clientOrder: InnerTubeClientConfig[] = [
-      CLIENT_CONFIGS.ANDROID,
       CLIENT_CONFIGS.IOS,
+      CLIENT_CONFIGS.ANDROID,
       CLIENT_CONFIGS.TV_EMBEDDED,
       CLIENT_CONFIGS.WEB,
     ],

@@ -73,8 +73,14 @@ function getClientCode(name: string): string {
 
 /**
  * Builds standard client context payload for InnerTube requests.
+ * @param visitorData - optional session visitor token acquired from /guide
  */
-export function buildContext(config: InnerTubeClientConfig, hl = 'en', gl = 'US') {
+export function buildContext(
+  config: InnerTubeClientConfig,
+  visitorData?: string,
+  hl = 'en',
+  gl = 'US',
+) {
   const client: Record<string, unknown> = {
     hl,
     gl,
@@ -96,6 +102,9 @@ export function buildContext(config: InnerTubeClientConfig, hl = 'en', gl = 'US'
   }
   if (config.clientScreen) {
     client.clientScreen = config.clientScreen;
+  }
+  if (visitorData) {
+    client.visitorData = visitorData;
   }
 
   return {

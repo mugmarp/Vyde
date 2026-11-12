@@ -1,11 +1,22 @@
 /**
  * Player Extractor
  * Extracts streaming candidates, video metadata, and related videos via InnerTube.
+ *
+ * Client cascade order (most reliable for stream extraction first):
+ *   IOS  → returns HLS manifests natively — preferred
+ *   ANDROID → progressive MP4s, some adaptive
+ *   TV_EMBEDDED → relaxed PoToken enforcement
+ *   WEB → last resort; most likely to have ciphered-only formats
  */
 
 import { CLIENT_CONFIGS } from './constants';
 import { defaultInnerTube } from './innertubeClient';
-import { extractPlaybackCandidates, formatDuration, cleanText } from './cipher';
+import {
+  extractPlaybackCandidates,
+  extractPlayerId,
+  formatDuration,
+  cleanText,
+} from './cipher';
 import {
   NormalizedVideoDetails,
   NormalizedVideoItem,
@@ -21,7 +32,7 @@ export async function extractPlayer(videoId: string): Promise<NormalizedVideoDet
     throw new Error('Invalid YouTube video ID format.');
   }
 
-  // Multi-client resolution cascade
+  // Multi-client resolution cascade — IOS first to maximise HLS manifest chances
   const { data: response } = await defaultInnerTube.postWithCascade<InnerTubePlayerResponse>(
     'player',
     () => ({
@@ -33,10 +44,10 @@ export async function extractPlayer(videoId: string): Promise<NormalizedVideoDet
       },
     }),
     [
-      CLIENT_CONFIGS.ANDROID,
-      CLIENT_CONFIGS.IOS,
-      CLIENT_CONFIGS.TV_EMBEDDED,
-      CLIENT_CONFIGS.WEB,
+      CLIENT_CONFIGS.IOS,         // → HLS manifests, relaxed PoToken
+      CLIENT_CONFIGS.ANDROID,     // → progressive MP4s
+      CLIENT_CONFIGS.TV_EMBEDDED, // → relaxed enforcement
+      CLIENT_CONFIGS.WEB,         // → last resort
     ],
   );
 
@@ -54,15 +65,29 @@ export async function extractPlayer(videoId: string): Promise<NormalizedVideoDet
   const title = details.title || microformat?.title?.simpleText || 'YouTube Video';
   const channel = details.author || microformat?.ownerChannelName || '';
   const channelId = details.channelId || microformat?.ownerProfileUrl || '';
-  const description = cleanText(details.shortDescription || microformat?.description?.simpleText || '');
+  const description = cleanText(
+    details.shortDescription || microformat?.description?.simpleText || '',
+  );
   const views = details.viewCount || microformat?.viewCount || '0';
   const publishedAt = microformat?.publishDate || microformat?.uploadDate || '';
   const livestream = details.isLiveContent === true;
 
-  // Extract playback candidates (HLS manifests, progressive MP4s, adaptive audio)
-  const candidates = extractPlaybackCandidates(streamingData);
+  // Extract the player JS ID for signature deciphering
+  const playerId = extractPlayerId(response as Record<string, unknown>);
+  if (!playerId) {
+    console.warn(`[PlayerExtractor] Could not extract playerId for ${videoId} — cipher may fail`);
+  }
 
-  // Extract related videos via /next (non-blocking or best effort)
+  // Extract playback candidates with async signature deciphering
+  const candidates = await extractPlaybackCandidates(streamingData, playerId);
+
+  if (candidates.length === 0) {
+    console.warn(
+      `[PlayerExtractor] No playback candidates resolved for ${videoId}. Status: ${status}`,
+    );
+  }
+
+  // Extract related videos via /next (non-blocking)
   let relatedVideos: NormalizedVideoItem[] = [];
   try {
     relatedVideos = await extractRelatedVideos(videoId);
@@ -110,9 +135,16 @@ export async function extractRelatedVideos(videoId: string): Promise<NormalizedV
       if (!compactVideo || !compactVideo.videoId) continue;
 
       const id = compactVideo.videoId;
-      const title = compactVideo.title?.simpleText || compactVideo.title?.runs?.[0]?.text || '';
-      const channel = compactVideo.shortBylineText?.runs?.[0]?.text || compactVideo.longBylineText?.runs?.[0]?.text || '';
-      const views = compactVideo.viewCountText?.simpleText || compactVideo.shortViewCountText?.simpleText || '';
+      const title =
+        compactVideo.title?.simpleText || compactVideo.title?.runs?.[0]?.text || '';
+      const channel =
+        compactVideo.shortBylineText?.runs?.[0]?.text ||
+        compactVideo.longBylineText?.runs?.[0]?.text ||
+        '';
+      const views =
+        compactVideo.viewCountText?.simpleText ||
+        compactVideo.shortViewCountText?.simpleText ||
+        '';
       const duration = compactVideo.lengthText?.simpleText || null;
 
       items.push({
@@ -120,7 +152,9 @@ export async function extractRelatedVideos(videoId: string): Promise<NormalizedV
         title,
         description: '',
         channel,
-        channelId: compactVideo.shortBylineText?.runs?.[0]?.navigationEndpoint?.browseEndpoint?.browseId || '',
+        channelId:
+          compactVideo.shortBylineText?.runs?.[0]?.navigationEndpoint?.browseEndpoint
+            ?.browseId || '',
         publishedAt: compactVideo.publishedTimeText?.simpleText || '',
         thumbnail: youtubeThumbnail(id),
         watchUrl: `https://www.youtube.com/watch?v=${id}`,
@@ -132,7 +166,7 @@ export async function extractRelatedVideos(videoId: string): Promise<NormalizedV
     }
 
     return items;
-  } catch (err) {
+  } catch {
     return [];
   }
 }
