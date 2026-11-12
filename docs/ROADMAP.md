@@ -171,52 +171,108 @@ Before Phase 1 is declared complete, **all three** of the following must be true
 
 **Goal:** Background-capable downloads with progress, pause/resume, storage management, share/export, and audio-only mode.
 
-**Prerequisite:** Phase 1 Task 1.4 (`expo-file-system`) is installed and working.
+**Prerequisite:** Phase 1 Task 1.4 (`expo-file-system` and `DownloadManager`) installed and working.
 
-### Engineering tasks
+### Detailed Architecture & Engineering Tasks
 
-| Task | Detail |
-|---|---|
-| **Background downloads** | Use `expo-task-manager` + `expo-background-fetch` to allow downloads to continue when app is backgrounded |
-| **Progress persistence** | Serialise `DownloadResumable` data to AsyncStorage; resume on app re-open |
-| **Audio-only mode** | Download the best audio adaptive stream (M4A/AAC) only — labelled "Audio only" in UI |
-| **Storage management** | Show storage used / available in Library Offline tab; enforce a configurable size cap with warning |
-| **Share/Export** | `expo-sharing` → OS share sheet from any downloaded item |
-| **Notifications** | `expo-notifications` progress + completion notification when download finishes in background |
+```text
+User initiates download (Progressive MP4 or Audio-only M4A)
+  │
+  ├──► DownloadManager.start() [services/download/downloadManager.ts]
+  │       │
+  │       ├──► FileSystem.createDownloadResumable()
+  │       │       │
+  │       │       ├──► Target: FileSystem.documentDirectory/vyde-downloads/{videoId}.mp4
+  │       │       ├──► Progress callback updates AppContext & UI Progress Bar
+  │       │       └──► Savable resume data stored in AsyncStorage on app pause
+  │       │
+  │       └──► Background Task: TaskManager.defineTask('VYDE_DOWNLOAD_TASK')
+  │               Allows media stream downloading to continue when screen is locked
+  │
+  ├──► Storage Management & Analytics:
+  │       ├──► DownloadManager.totalStorageMB() calculates disk footprint
+  │       └──► Configurable size cap (e.g., 5GB/10GB) with cleanup recommendations
+  │
+  └──► OS Share Sheet Integration:
+          └──► expo-sharing.shareAsync(localUri) exports raw .mp4/.m4a to device filesystem
+```
+
+| Task | Module / Path | Detailed Engineering Specification | Status |
+|---|---|---|:---:|
+| **Background Continuation** | `services/download/downloadManager.ts` | Register `TaskManager.defineTask('VYDE_BACKGROUND_DOWNLOAD')` using `expo-task-manager` and `expo-background-fetch` to maintain active socket connections when app is backgrounded. | ⏳ Planned |
+| **Resumable Serialization** | `services/download/downloadManager.ts` | Save `downloadResumable.savable()` snapshot to storage upon app lifecycle change (`AppState` $\rightarrow$ `background`). On app restart, invoke `createDownloadResumable()` with saved resume data. | ⏳ Planned |
+| **Dedicated Audio-Only Mode** | `app/player.tsx`, `library.tsx` | Add explicit "Download Audio (M4A)" action in player and context menus. Selects the highest bitrate Opus/AAC adaptive stream (`candidate.contentType === 'audio'`) saving to `{videoId}.m4a`. | ⏳ Planned |
+| **Storage Visualization & Limits** | `app/(tabs)/library.tsx` | Render storage meter bar in Offline tab: displays "Used by Vyde" vs "Available on Device", with a "Clear all downloads" destructive action. | ⏳ Planned |
+| **OS Share Sheet Export** | `app/(tabs)/library.tsx` | Add "Export file" option to downloaded items invoking `Sharing.shareAsync(localUri, { mimeType: 'video/mp4' })` allowing users to save files to Android Downloads or iOS Files. | ⏳ Planned |
+
+### Phase 3 Definition of Done (DoD)
+1. Media continues downloading when the user locks their device or switches apps.
+2. Interrupted downloads can be resumed without restarting from byte 0.
+3. Downloaded `.mp4` and `.m4a` files can be exported to system storage via the OS Share Sheet.
 
 ---
 
 ## Phase 4 — Local Library & Optional Google OAuth
 
-**Goal:** Solid local persistence for history, likes, saves, playlists, subscriptions. Optional Google OAuth for true account sync — never required.
+**Goal:** Relational local persistence for history, likes, saves, playlists, and subscriptions using SQLite. Optional Google OAuth 2.0 PKCE account sync without breaking offline-first behavior.
 
-### Engineering tasks
+### Detailed Architecture & Engineering Tasks
 
-| Task | Detail |
-|---|---|
-| **SQLite migration** | Replace `AsyncStorage` chaos with `expo-sqlite` — one table each for `history`, `likes`, `saves`, `playlists`, `playlist_videos`, `subscriptions` |
-| **History auto-record** | Already wired in `player.tsx` via `recordHistory()` — needs persistence to SQLite |
-| **Local subscriptions** | Store channelId + name + thumbnail locally; periodic `/browse?browseId=channelId` to fetch latest videos |
-| **Optional Google OAuth PKCE** | `expo-auth-session` + Google OAuth 2.0 PKCE flow — read/write likes, playlists, subscriptions to YouTube account. Disabled by default, opt-in via Settings |
-| **Account sync indicator** | Show sync status in Profile tab — "Local only" vs. "Synced with Google" |
+```text
+Local-First Architecture (Primary)
+  │
+  ├──► expo-sqlite Database: vyde.db
+  │       ├──► Table: history (videoId, title, channel, thumbnail, progress, watchedAt)
+  │       ├──► Table: likes (videoId, title, channel, thumbnail, likedAt)
+  │       ├──► Table: saves (videoId, title, channel, thumbnail, savedAt)
+  │       ├──► Table: playlists (id, name, isPrivate, createdAt)
+  │       ├──► Table: playlist_items (playlistId, videoId, position)
+  │       └──► Table: subscriptions (channelId, name, thumbnail, subscribedAt)
+  │
+Optional Google OAuth 2.0 (Secondary - Opt-in via Settings)
+  │
+  ├──► expo-auth-session / PKCE Flow
+  │       ├──► Client ID (Android / iOS / Web)
+  │       ├──► Scopes: https://www.googleapis.com/auth/youtube.readonly
+  │       └──► Token storage in secure hardware (expo-secure-store)
+  │
+  └──► Background Account Bridge:
+          Imports user's remote playlists and subscribed channels into local SQLite tables.
+```
+
+| Task | Module / Path | Detailed Engineering Specification | Status |
+|---|---|---|:---:|
+| **SQLite Migration** | `context/DatabaseContext.tsx`, `services/db/` | Replace unstructured `AsyncStorage` JSON dumps with `expo-sqlite`. Run initial schema migration creating indexed tables for `history`, `likes`, `saves`, `playlists`, and `subscriptions`. | ⏳ Planned |
+| **Local Subscriptions Feed** | `app/(tabs)/subscriptions.tsx`, `services/innertube/` | Allow users to subscribe to channels locally. Store channel IDs in SQLite. Build subscription feed querying InnerTube `/browse` with `browseId` in batch or on-demand. | ⏳ Planned |
+| **Watch History Auto-Record** | `app/player.tsx`, `context/DatabaseContext.tsx` | Persist video watch progress every 5 seconds to SQLite `history` table. Resume playback from `lastWatchedProgress` upon reopening. | ⏳ Planned |
+| **Optional Google OAuth PKCE** | `services/auth/googleAuth.ts`, `app/(tabs)/profile.tsx` | Implement OAuth 2.0 PKCE using `expo-auth-session`. Zero login required by default. When signed in, provide one-way import of YouTube playlists into local SQLite. | ⏳ Planned |
+| **Account Sync Indicator** | `app/(tabs)/profile.tsx` | Display clear privacy badge: "Local-Only Profile (Private)" or "Synced with Google (Read-Only)". | ⏳ Planned |
+
+### Phase 4 Definition of Done (DoD)
+1. All user playlists, watch history, and liked videos survive complete app restarts and cache purges via SQLite.
+2. Users can follow channels locally and view a dedicated subscriptions feed without a Google account.
+3. Signing into Google is strictly opt-in and does not disable any local offline feature.
 
 ---
 
 ## Phase 5 — Polish, CI, & Production Documentation
 
-**Goal:** A release-ready open-source application with clean docs, reliable CI, and an F-Droid compatible APK build.
+**Goal:** A release-ready open-source application with clean docs, reliable CI, automated APK distribution, and an F-Droid build recipe.
 
-### Engineering tasks
+### Detailed Engineering Tasks
 
-| Task | Detail |
-|---|---|
-| **CI hardening** | Add Android instrumented test job to `.github/workflows/ci.yml`; cache Gradle and npm; run benchmark suite headlessly on emulator |
-| **README rewrite** | Clear setup, build, and sideload instructions for end users and contributors |
-| **Architecture docs** | Final rewrite of `docs/VYDE_ARCHITECTURE.md` to match completed implementation |
-| **F-Droid build recipe** | `metadata/com.vyde.android.yml` for F-Droid inclusion |
-| **Error telemetry** | Optional Sentry integration (disabled by default; user opt-in) |
-| **a11y pass** | Audit all screens for accessibility labels, font scaling, contrast |
-| **Dark/light toggle** | Expose theme toggle in Settings (dark is default; always has been) |
+| Task | Module / Path | Detailed Engineering Specification | Status |
+|---|---|---|:---:|
+| **CI Headless Benchmark Job** | `.github/workflows/ci.yml` | Add automated GitHub Actions job running `node scripts/benchmark_phase1.mjs` against live YouTube servers to detect any YouTube algorithm breaking changes on pull requests. | ⏳ Planned |
+| **F-Droid Build Recipe** | `metadata/com.vyde.android.yml` | Create standard F-Droid packaging metadata with reproducible build instructions, licensing flags (`GPL-3.0` / `MIT`), and anti-feature disclosures. | ⏳ Planned |
+| **End-User Sideload Documentation** | `README.md`, `docs/SIDELOAD_GUIDE.md` | Comprehensive guide explaining how to install the compiled `.apk` on Android, enabling developer options, and updating builds. | ⏳ Planned |
+| **Architecture Documentation Finalization** | `docs/VYDE_ARCHITECTURE.md` | Final documentation pass synchronizing all API changes, InnerTube client headers, and offline storage models. | ⏳ Planned |
+| **Accessibility & Contrast Pass** | All UI screens | Audit font scaling, minimum tap targets ($\ge 44 \times 44$ pt), VoiceOver/TalkBack `accessibilityLabel` tags across all icons and controls. | ⏳ Planned |
+
+### Phase 5 Definition of Done (DoD)
+1. GitHub Actions automatically builds release-ready `.apk` artifacts on Git tags.
+2. Benchmark script passes automatically in CI pipeline.
+3. Complete documentation exists enabling any user to build or sideload the application.
 
 ---
 
@@ -225,13 +281,14 @@ Before Phase 1 is declared complete, **all three** of the following must be true
 | Decision | Choice | Rationale |
 |---|---|---|
 | **Primary data source** | Direct InnerTube (`/youtubei/v1/*`) | Zero official quota; anonymous access |
-| **Primary playback path** | IOS client → HLS `.m3u8` | AVPlayer + ExoPlayer natively support HLS adaptive; no manual merging |
-| **Cipher deciphering** | Runtime JS extraction from `base.js` | Only reliable approach; cached between sessions |
-| **Offline storage** | `expo-file-system` → `documentDirectory/downloads/` | Native FS, resumable, cross-platform |
-| **Local DB** | `expo-sqlite` (Phase 4) | Relational queries; replaces AsyncStorage chaos |
+| **Primary playback path** | IOS client (`20.01.1`) $\rightarrow$ HLS `.m3u8` | AVPlayer + ExoPlayer natively support HLS adaptive; no manual merging |
+| **Secondary fallback** | VisionOS (`0.1`) + Android VR (`1.60.19`) | Unthrottled HLS master manifests and direct progressive MP4 streams |
+| **Cipher deciphering** | Runtime JS extraction from `base.js` | Resolves `signatureCipher` & `n`-param unthrottling; cached per player ID |
+| **Offline storage** | `expo-file-system` $\rightarrow$ `documentDirectory/vyde-downloads/` | Native file I/O, resumable, cross-platform |
+| **Local DB** | `expo-sqlite` (Phase 4) | Relational queries; structured transactions replacing AsyncStorage |
 | **Auth** | Optional PKCE, local-first default | Never break offline experience |
 | **Distribution** | Sideload / F-Droid / open-source | No Play Store compliance compromises |
-| **Express server** | Temporary CORS proxy for web preview | Long-term goal: pure client-side; phase out by M3 |
+| **Express server** | Temporary CORS proxy for web preview | Phased out for native builds; retained only for web dev preview |
 
 ---
 
@@ -240,26 +297,24 @@ Before Phase 1 is declared complete, **all three** of the following must be true
 ### Currently Installed
 
 | Package | Purpose | Phase |
-|---|---|---|
-| `expo-video ~3.0.16` | Native video player | 1 |
-| `react-native-gesture-handler ~2.28.0` | Gesture recognisers | 2 |
-| `react-native-reanimated ~4.1.1` | Animated gesture responses | 2 |
-| `@react-native-async-storage/async-storage` | Temp local state | 1 (migrate in 4) |
-| `expo-haptics` | Haptic feedback on controls | 2 |
+|---|---|:---:|
+| `expo-video ~3.0.16` | Native video player engine | 1 |
+| `expo-file-system ~18.0.12` | Binary media streaming and sandboxed file I/O | 1 / 3 |
+| `expo-sharing ~13.0.5` | OS Share Sheet export for media files | 1 / 3 |
+| `expo-haptics ~15.0.8` | Haptic feedback for seek gestures and speed toggles | 2 |
+| `react-native-gesture-handler ~2.28.0` | Multi-touch gesture recognizers (pan, pinch, double-tap) | 2 |
+| `react-native-reanimated ~4.1.1` | High-performance 60fps animations for controls and ripples | 2 |
+| `@react-native-async-storage/async-storage` | Initial local state storage (migrating to SQLite in Phase 4) | 1 |
 
-### Must Be Added
+### To Be Added in Subsequent Phases
 
 | Package | Purpose | Phase |
-|---|---|---|
-| `expo-file-system` | Binary download + local file I/O | **1** |
-| `expo-sharing` | OS share sheet export | **1** / 3 |
-| `expo-sqlite` | Persistent local DB | 4 |
-| `expo-brightness` | Gesture brightness control | 2 |
-| `react-native-volume-manager` | Gesture volume control | 2 |
-| `expo-task-manager` | Background download tasks | 3 |
-| `expo-background-fetch` | Background download continuation | 3 |
-| `expo-notifications` | Download completion notifications | 3 |
-| `expo-auth-session` | Google OAuth 2.0 PKCE | 4 |
+|---|---|:---:|
+| `expo-task-manager` | Background download task continuation | 3 |
+| `expo-background-fetch` | Periodic background updates and feed cache | 3 |
+| `expo-sqlite` | Relational local database replacing AsyncStorage | 4 |
+| `expo-auth-session` | Optional Google OAuth 2.0 PKCE account bridge | 4 |
+| `expo-secure-store` | Hardware-encrypted token storage for optional auth | 4 |
 
 ---
 

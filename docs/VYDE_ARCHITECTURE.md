@@ -56,20 +56,23 @@ Vyde is a premium, dark-first mobile client for YouTube built with Expo and Reac
 
 ## 3. Playback & Stream Resolution Strategy
 
-YouTube serves media through multiple client configurations. Vyde employs a cascaded client resolution strategy:
+YouTube serves media through multiple client configurations. Vyde employs a modern cascaded client resolution strategy:
 
-1. **ANDROID Context (`com.google.android.youtube/19.29.37`)**:
+1. **IOS Context (`com.google.ios.youtube/20.01.1`)**:
    - Queries `/youtubei/v1/player`.
-   - Often provides direct progressive MP4 streams with audio and clean HLS manifests.
-2. **IOS Context (`com.google.ios.youtube/19.29.1`)**:
-   - Yields adaptive HLS master manifests (`.m3u8`) natively supported by iOS AVPlayer and Android ExoPlayer via `expo-video`.
-3. **TV_EMBEDDED / WEB Context**:
-   - Provides backup DASH streaming manifests and progressive video fallbacks.
-4. **Playback Candidates Priority**:
-   - **HLS Manifests**: Preferred for adaptive bitrate, native audio/video synchronization, and scrubbing efficiency.
-   - **Progressive MP4 (with audio)**: Secondary candidate for offline downloads and direct seeking.
-   - **Audio Streams (M4A/MP3)**: For background audio and audio-only offline export.
-   - **YouTube Watch Fallback**: Clean fallback button when network or playback issues occur.
+   - Primary target: yields adaptive HLS master manifests (`.m3u8`) and direct adaptive audio/video streams, natively supported by AVPlayer (iOS) and ExoPlayer (Android) via `expo-video`.
+2. **ANDROID Context (`com.google.android.youtube/20.03.36`)**:
+   - Provides direct progressive MP4 streams (muxed 360p audio/video container) and 25+ discrete adaptive video resolutions (up to 2160p 4K).
+3. **VISIONOS Context (`VISIONOS 0.1` / Apple Vision Pro)**:
+   - Returns unthrottled live HLS master manifests (`manifest.googlevideo.com/.../index.m3u8`) with zero botguard challenge.
+4. **ANDROID_VR Context (`com.google.android.apps.youtube.vr.oculus/1.60.19`)**:
+   - Oculus/Meta Quest profile providing progressive MP4 fallbacks with relaxed token enforcement.
+5. **Playback Candidates Priority**:
+   - **HLS Master Manifests (`.m3u8`)**: Highest priority for adaptive bitrate streaming, low-latency startup, and native seeking.
+   - **Progressive MP4 (audio+video container)**: Optimal for offline downloads and local disk playback.
+   - **Adaptive Video Formats (1080p, 1440p, 4K)**: High-resolution streams for large screen viewing.
+   - **Audio Streams (M4A/AAC)**: For background playback and audio-only offline storage.
+   - **YouTube Watch Fallback**: Secondary button when streams are regionally geo-blocked or private.
 
 ---
 
