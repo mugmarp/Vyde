@@ -44,10 +44,12 @@ export async function extractPlayer(videoId: string): Promise<NormalizedVideoDet
       },
     }),
     [
-      CLIENT_CONFIGS.IOS,         // → HLS manifests, relaxed PoToken
-      CLIENT_CONFIGS.ANDROID,     // → progressive MP4s
-      CLIENT_CONFIGS.TV_EMBEDDED, // → relaxed enforcement
-      CLIENT_CONFIGS.WEB,         // → last resort
+      CLIENT_CONFIGS.IOS,         // → HLS manifests & adaptive formats (iOS 18)
+      CLIENT_CONFIGS.ANDROID,     // → Progressive MP4s (360p) & adaptive formats (Android 14)
+      CLIENT_CONFIGS.VISIONOS,    // → VisionOS Apple HLS master playlist (.m3u8)
+      CLIENT_CONFIGS.ANDROID_VR,  // → Android VR / Oculus direct stream formats
+      CLIENT_CONFIGS.TV_EMBEDDED, // → Living room relaxed enforcement
+      CLIENT_CONFIGS.WEB,         // → Web client fallback
     ],
   );
 

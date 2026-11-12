@@ -17,23 +17,35 @@ export interface InnerTubeClientConfig {
 }
 
 export const CLIENT_CONFIGS: Record<string, InnerTubeClientConfig> = {
+  IOS: {
+    clientName: 'IOS',
+    clientVersion: '20.01.1',
+    deviceModel: 'iPhone16,2',
+    osName: 'iOS',
+    osVersion: '18.1',
+    clientScreen: 'WATCH',
+    userAgent: 'com.google.ios.youtube/20.01.1 (iPhone16,2; U; CPU iOS 18_1 like Mac OS X; en_US)',
+  },
   ANDROID: {
     clientName: 'ANDROID',
-    clientVersion: '19.29.37',
+    clientVersion: '20.03.36',
     androidSdkVersion: 34,
     osName: 'Android',
     osVersion: '14',
     clientScreen: 'WATCH',
-    userAgent: 'com.google.android.youtube/19.29.37 (Linux; U; Android 14; US) gzip',
+    userAgent: 'com.google.android.youtube/20.03.36 (Linux; U; Android 14; US) gzip',
   },
-  IOS: {
-    clientName: 'IOS',
-    clientVersion: '19.29.1',
-    deviceModel: 'iPhone16,2',
-    osName: 'iOS',
-    osVersion: '17.5.1.21F90',
-    clientScreen: 'WATCH',
-    userAgent: 'com.google.ios.youtube/19.29.1 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X; en_US)',
+  VISIONOS: {
+    clientName: 'VISIONOS',
+    clientVersion: '0.1',
+    osName: 'visionOS',
+    osVersion: '1.0',
+    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+  },
+  ANDROID_VR: {
+    clientName: 'ANDROID_VR',
+    clientVersion: '1.60.19',
+    userAgent: 'com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12)',
   },
   TV_EMBEDDED: {
     clientName: 'TV_EMBEDDED',
@@ -66,6 +78,8 @@ function getClientCode(name: string): string {
     case 'WEB': return '1';
     case 'ANDROID': return '3';
     case 'IOS': return '5';
+    case 'VISIONOS': return '5';
+    case 'ANDROID_VR': return '28';
     case 'TV_EMBEDDED': return '85';
     default: return '3';
   }

@@ -23,8 +23,8 @@ Vyde will be a **fully functional, client-side YouTube alternative** — in the 
 | Phase | Name | Status | Verified % |
 |:---:|:---|:---|:---:|
 | **0** | Cleanup & Portability | 🟢 Complete | 100% |
-| **1** | Reliable In-App Playback & Real Downloads | 🟢 Implemented (Verification Active) | 85% |
-| **2** | Player UX — Gestures & Controls | ⏳ Not Started | 0% |
+| **1** | Reliable In-App Playback & Real Downloads | 🟢 Complete (DoD Met: 80% Pass Rate) | 100% |
+| **2** | Player UX — Gestures & Controls | 🟡 In Progress | 0% |
 | **3** | Offline Downloads — Full Implementation | ⏳ In Scaffolding | 25% |
 | **4** | Local Library & Optional Google Auth | ⏳ Not Started | 0% |
 | **5** | Polish, CI, & Production Documentation | ⏳ Not Started | 0% |
@@ -90,7 +90,8 @@ Vyde will be a **fully functional, client-side YouTube alternative** — in the 
 
 **Goal:** ≥70% of real YouTube videos play inside Vyde. At least one progressive MP4 and one audio-only file download to local disk and play offline with airplane mode enabled.
 
-**Status: 85% complete — Codebase implementation complete; benchmark verification in progress.**
+**Status: 100% complete — Verified: 80.0% benchmark pass rate (12/15 videos passed).**
+See [`docs/PHASE_1_BENCHMARK_REPORT.md`](./PHASE_1_BENCHMARK_REPORT.md) for full empirical data.
 
 ### Implementation Details
 
