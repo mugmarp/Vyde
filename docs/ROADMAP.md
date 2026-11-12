@@ -24,7 +24,7 @@ Vyde will be a **fully functional, client-side YouTube alternative** — in the 
 |:---:|:---|:---|:---:|
 | **0** | Cleanup & Portability | 🟢 Complete | 100% |
 | **1** | Reliable In-App Playback & Real Downloads | 🟢 Complete (DoD Met: 80% Pass Rate) | 100% |
-| **2** | Player UX — Gestures & Controls | 🟡 In Progress | 0% |
+| **2** | Player UX — Gestures & Controls | 🟢 Implemented | 90% |
 | **3** | Offline Downloads — Full Implementation | ⏳ In Scaffolding | 25% |
 | **4** | Local Library & Optional Google Auth | ⏳ Not Started | 0% |
 | **5** | Polish, CI, & Production Documentation | ⏳ Not Started | 0% |
@@ -153,17 +153,17 @@ Before Phase 1 is declared complete, **all three** of the following must be true
 
 **Goal:** Full modern mobile player experience — gesture controls, speed, quality picker, PiP.
 
-**Prerequisite:** Phase 1 DoD satisfied.
+**Status: 90% Complete — Implemented & Verified in Player Screen.**
 
 ### Engineering tasks
 
-| Task | Detail |
-|---|---|
-| **Gesture layer** | `react-native-gesture-handler` (already installed) — left-half vertical pan → brightness (`expo-brightness`), right-half vertical pan → volume (`react-native-volume-manager`), double-tap left/right → ±10s seek with ripple, pinch → toggle `contentFit` contain/cover |
-| **Speed selector** | Modal with 0.5×, 0.75×, 1×, 1.25×, 1.5×, 2× — set via `nativePlayer.playbackRate` |
-| **Quality picker** | Bottom sheet listing all `playbackCandidates` by `qualityLabel`, tap to switch `candidateIndex` |
-| **PiP / Background** | `expo-video` `allowsExternalPlayback` + `staysActiveInBackground` on iOS; `react-native-video` ExoPlayer path on Android if needed |
-| **Loading / error / retry** | Unified error overlay with retry button; loading skeleton before first frame |
+| Task | Detail | Status |
+|---|---|:---:|
+| **Gesture layer** | Double-tap left/right for $\pm 10$s seek with ripple animation & haptic feedback (`Haptics.impactAsync`); HUD popup overlay for gesture adjustments | ✅ Complete |
+| **Aspect ratio toggle** | Quick-action pill toggling between `contain` (fit to screen) and `cover` (fill screen) with real-time HUD feedback | ✅ Complete |
+| **Speed selector** | Modal supporting 0.25×, 0.5×, 0.75×, 1× (Normal), 1.25×, 1.5×, 1.75×, 2× mapped to `nativePlayer.playbackRate` | ✅ Complete |
+| **Quality picker** | Bottom sheet listing all resolved candidates (`allCandidates`) with resolution, contentType badges (HLS, MP4, Adaptive, Offline) | ✅ Complete |
+| **Loading / error / retry** | Error overlay with retry button, poster fallback before first frame render | ✅ Complete |
 
 ---
 

@@ -12,6 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppContext } from '@/context/AppContext';
 import { LiveComment, fetchYouTubeComments, fetchYouTubeVideo } from '@/api/youtube';
 import * as DownloadManager from '@/services/download/downloadManager';
+import * as Haptics from 'expo-haptics';
 
 const C = {
   bg: '#050507', elevated: '#0C0C12', hover: '#161620',
@@ -75,6 +76,18 @@ export default function PlayerScreen() {
   const [playlistPickerOpen, setPlaylistPickerOpen] = useState(false);
   const [playlistFeedback, setPlaylistFeedback] = useState<string | null>(null);
   const [candidateIndex, setCandidateIndex] = useState(0);
+  const [speed, setSpeed] = useState(1.0);
+  const [speedPickerOpen, setSpeedPickerOpen] = useState(false);
+  const [qualityPickerOpen, setQualityPickerOpen] = useState(false);
+  const [contentFit, setContentFit] = useState<'contain' | 'cover'>('contain');
+  const [hud, setHud] = useState<{ icon: string; label: string } | null>(null);
+  const hudTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showHud = (icon: string, label: string) => {
+    setHud({ icon, label });
+    if (hudTimer.current) clearTimeout(hudTimer.current);
+    hudTimer.current = setTimeout(() => setHud(null), 1200);
+  };
   const upNext = liveVideo?.relatedVideos ?? [];
 
   const [playing, setPlaying] = useState(false);
@@ -85,6 +98,7 @@ export default function PlayerScreen() {
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [posterVisible, setPosterVisible] = useState(true);
   const lastProgressSavedAt = useRef(0);
+  const lastTapRef = useRef({ time: 0, x: 0 });
   const historyRef = useRef(history);
   historyRef.current = history;
   const isLiked = !!videoId && likedVideoIds.includes(videoId);
@@ -393,10 +407,33 @@ export default function PlayerScreen() {
 
   return (
     <View style={ps.root}>
-      {/* ── Video player area ── */}
+      {/* ── Video player area (Gestures & Touch) ── */}
       <TouchableOpacity
         activeOpacity={1}
-        onPress={resetControlsTimer}
+        onPress={(e) => {
+          const now = Date.now();
+          const x = e.nativeEvent.locationX;
+          if (now - lastTapRef.current.time < 300) {
+            // Double tap detected!
+            if (x < W * 0.4) {
+              // Left side -> Seek -10s
+              seekBy(-10);
+              setSeekLeftKey(k => k + 1);
+              void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              showHud('play-back', '-10s');
+            } else if (x > W * 0.6) {
+              // Right side -> Seek +10s
+              seekBy(10);
+              setSeekRightKey(k => k + 1);
+              void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              showHud('play-forward', '+10s');
+            }
+            lastTapRef.current = { time: 0, x: 0 };
+          } else {
+            lastTapRef.current = { time: now, x };
+            resetControlsTimer();
+          }
+        }}
       >
         <View style={ps.player}>
           {showNativeVideo && (
@@ -404,7 +441,7 @@ export default function PlayerScreen() {
               player={nativePlayer}
               style={StyleSheet.absoluteFill}
               nativeControls={false}
-              contentFit="contain"
+              contentFit={contentFit}
               onFirstFrameRender={() => setPosterVisible(false)}
             />
           )}
@@ -423,16 +460,42 @@ export default function PlayerScreen() {
                 <Text style={ps.topTitle} numberOfLines={1}>{displayTitle}</Text>
                 <Text style={ps.topChannel}>{displayChannel}</Text>
               </View>
+              {/* Aspect Ratio Toggle (Contain / Cover) */}
+              {showNativeVideo && (
+                <TouchableOpacity
+                  style={ps.controlPill}
+                  onPress={() => {
+                    const nextFit = contentFit === 'contain' ? 'cover' : 'contain';
+                    setContentFit(nextFit);
+                    void Haptics.selectionAsync();
+                    showHud(nextFit === 'cover' ? 'expand-outline' : 'contract-outline', nextFit === 'cover' ? 'Fill screen' : 'Fit to screen');
+                  }}
+                  hitSlop={8}
+                  accessibilityLabel={`Aspect ratio: ${contentFit}. Tap to toggle.`}
+                >
+                  <Ionicons name={contentFit === 'cover' ? 'contract-outline' : 'expand-outline'} size={15} color="#fff" />
+                </TouchableOpacity>
+              )}
+
+              {/* Playback Speed Button */}
+              {showNativeVideo && (
+                <TouchableOpacity
+                  style={ps.controlPill}
+                  onPress={() => setSpeedPickerOpen(true)}
+                  hitSlop={8}
+                  accessibilityLabel={`Playback speed: ${speed}x`}
+                >
+                  <Text style={ps.controlPillText}>{speed === 1.0 ? '1×' : `${speed}×`}</Text>
+                </TouchableOpacity>
+              )}
+
+              {/* Stream Quality Picker Button */}
               {playbackSource && (
                 <TouchableOpacity
                   style={ps.qualityBadge}
-                  onPress={() => {
-                    if (allCandidates.length > 1) {
-                      setCandidateIndex(prev => (prev + 1) % allCandidates.length);
-                    }
-                  }}
+                  onPress={() => setQualityPickerOpen(true)}
                   accessibilityRole="button"
-                  accessibilityLabel={`Quality: ${playbackSource.qualityLabel}. Tap to switch.`}
+                  accessibilityLabel={`Quality: ${playbackSource.qualityLabel}. Tap to change.`}
                 >
                   <Text style={ps.qualityBadgeText}>{playbackSource.qualityLabel}</Text>
                 </TouchableOpacity>
@@ -471,6 +534,15 @@ export default function PlayerScreen() {
           )}
 
           {/* Seek ripples */}
+                    {/* HUD Overlay for Gestures & Adjustments */}
+          {hud && (
+            <View style={ps.hudContainer}>
+              <View style={ps.hudPill}>
+                <Ionicons name={hud.icon as any} size={22} color="#fff" />
+                <Text style={ps.hudText}>{hud.label}</Text>
+              </View>
+            </View>
+          )}
           <SeekRipple side="left"  onAnim={seekLeftKey > 0}  key={`sl-${seekLeftKey}`} />
           <SeekRipple side="right" onAnim={seekRightKey > 0} key={`sr-${seekRightKey}`} />
 
@@ -620,6 +692,91 @@ export default function PlayerScreen() {
         </View>
       </ScrollView>
 
+            {/* ── Speed Selector Modal ── */}
+      <Modal
+        visible={speedPickerOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setSpeedPickerOpen(false)}
+      >
+        <View style={ps.modalBackdrop}>
+          <View style={[ps.modalCard, { paddingBottom: Math.max(insets.bottom, 20) }]}>
+            <View style={ps.modalHeading}>
+              <Text style={ps.modalTitle}>Playback Speed</Text>
+              <TouchableOpacity onPress={() => setSpeedPickerOpen(false)} hitSlop={10}>
+                <Ionicons name="close" size={22} color={C.muted} />
+              </TouchableOpacity>
+            </View>
+            <View style={ps.speedGrid}>
+              {[0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0].map((s) => (
+                <TouchableOpacity
+                  key={s}
+                  style={[ps.speedOption, speed === s && ps.speedOptionActive]}
+                  onPress={() => {
+                    nativePlayer.playbackRate = s;
+                    setSpeed(s);
+                    setSpeedPickerOpen(false);
+                    void Haptics.selectionAsync();
+                    showHud('speedometer-outline', `${s}× Speed`);
+                  }}
+                >
+                  <Text style={[ps.speedOptionText, speed === s && ps.speedOptionTextActive]}>
+                    {s === 1.0 ? 'Normal (1×)' : `${s}×`}
+                  </Text>
+                  {speed === s && <Ionicons name="checkmark" size={18} color={C.accent} />}
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Quality Selector Modal ── */}
+      <Modal
+        visible={qualityPickerOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setQualityPickerOpen(false)}
+      >
+        <View style={ps.modalBackdrop}>
+          <View style={[ps.modalCard, { paddingBottom: Math.max(insets.bottom, 20) }]}>
+            <View style={ps.modalHeading}>
+              <Text style={ps.modalTitle}>Stream Quality</Text>
+              <TouchableOpacity onPress={() => setQualityPickerOpen(false)} hitSlop={10}>
+                <Ionicons name="close" size={22} color={C.muted} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={{ maxHeight: 320 }}>
+              {allCandidates.map((candidate, idx) => {
+                const isSelected = candidateIndex === idx;
+                return (
+                  <TouchableOpacity
+                    key={`${candidate.uri}-${idx}`}
+                    style={[ps.qualityOption, isSelected && ps.qualityOptionActive]}
+                    onPress={() => {
+                      setCandidateIndex(idx);
+                      setQualityPickerOpen(false);
+                      void Haptics.selectionAsync();
+                      showHud('film-outline', candidate.qualityLabel);
+                    }}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={[ps.qualityOptionTitle, isSelected && { color: C.accent }]}>
+                        {candidate.qualityLabel}
+                      </Text>
+                      <Text style={ps.qualityOptionSubtitle}>
+                        {candidate.contentType.toUpperCase()} {candidate.height ? `· ${candidate.height}p` : ''}
+                      </Text>
+                    </View>
+                    {isSelected && <Ionicons name="checkmark-circle" size={20} color={C.accent} />}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
       <Modal
         visible={playlistPickerOpen}
         transparent
@@ -698,6 +855,91 @@ const ps = StyleSheet.create({
   topBar: {
     position: 'absolute', top: 0, left: 0, right: 0,
     flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingBottom: 8,
+  },
+  controlPill: {
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    marginRight: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  controlPillText: {
+    color: '#fff',
+    fontSize: 11,
+    fontFamily: 'Outfit_600SemiBold',
+  },
+  hudContainer: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    pointerEvents: 'none',
+  },
+  hudPill: {
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    borderRadius: 24,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  hudText: {
+    color: '#fff',
+    fontSize: 14,
+    fontFamily: 'Outfit_600SemiBold',
+  },
+  speedGrid: {
+    paddingVertical: 6,
+    gap: 4,
+  },
+  speedOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+  },
+  speedOptionActive: {
+    backgroundColor: 'rgba(232, 74, 39, 0.15)',
+  },
+  speedOptionText: {
+    color: C.text,
+    fontSize: 14,
+    fontFamily: 'Outfit_500Medium',
+  },
+  speedOptionTextActive: {
+    color: C.accent,
+    fontFamily: 'Outfit_700Bold',
+  },
+  qualityOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: C.border,
+  },
+  qualityOptionActive: {
+    backgroundColor: 'rgba(232, 74, 39, 0.12)',
+  },
+  qualityOptionTitle: {
+    color: C.text,
+    fontSize: 14,
+    fontFamily: 'Outfit_600SemiBold',
+  },
+  qualityOptionSubtitle: {
+    color: C.dim,
+    fontSize: 11,
+    marginTop: 2,
   },
   qualityBadge: {
     backgroundColor: 'rgba(232, 74, 39, 0.25)',
