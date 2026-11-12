@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as DownloadManager from '@/services/download/downloadManager';
 
 export interface Playlist {
   id: string;
@@ -258,7 +259,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const removeDownload = useCallback((videoId: string) => {
-    setDownloads(prev => prev.filter(d => d.videoId !== videoId));
+    // Delete the actual file from disk if it exists
+    setDownloads(prev => {
+      const item = prev.find(d => d.videoId === videoId);
+      if (item?.uri) {
+        // Best-effort async delete — don't block UI
+        const fileName = DownloadManager.suggestFileName(
+          videoId,
+          item.format === 'audio' ? 'audio' : 'mp4',
+        );
+        void DownloadManager.deleteDownload(fileName);
+      }
+      return prev.filter(d => d.videoId !== videoId);
+    });
   }, []);
 
   const updateDownloadProgress = useCallback((videoId: string, progress: number, status?: OfflineDownloadItem['status']) => {

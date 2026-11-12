@@ -259,48 +259,80 @@ export default function LibraryScreen() {
               detail="Download videos or audio from the player screen to watch them without an internet connection."
             />
           ) : (
-            downloads.map(item => (
-              <View key={item.videoId} style={s.videoRow}>
-                <TouchableOpacity
-                  style={s.videoMain}
-                  activeOpacity={0.8}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Play downloaded ${item.title}`}
-                  onPress={() => router.push({
-                    pathname: '/player',
-                    params: {
-                      id: item.videoId,
-                      title: item.title,
-                      channel: item.channel,
-                      thumbnail: item.thumbnail,
-                    },
-                  })}
-                >
-                  {item.thumbnail ? (
-                    <Image source={{ uri: item.thumbnail }} style={s.videoThumb} contentFit="cover" />
-                  ) : (
-                    <View style={[s.videoThumb, s.missingThumb]}>
-                      <Ionicons name="film-outline" size={20} color={C.dim} />
+            downloads.map(item => {
+              const isComplete = item.status === 'completed';
+              const isDownloading = item.status === 'downloading' || item.status === 'queued';
+              const isFailed = item.status === 'failed';
+              return (
+                <View key={item.videoId} style={s.videoRow}>
+                  <TouchableOpacity
+                    style={s.videoMain}
+                    activeOpacity={0.8}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${isComplete ? 'Play' : 'View'} downloaded ${item.title}`}
+                    onPress={() => {
+                      if (!isComplete) return;
+                      router.push({
+                        pathname: '/player',
+                        params: {
+                          id: item.videoId,
+                          title: item.title,
+                          channel: item.channel,
+                          thumbnail: item.thumbnail,
+                          // localUri allows player to play from disk
+                          ...(item.uri ? { localUri: item.uri } : {}),
+                        },
+                      });
+                    }}
+                  >
+                    {item.thumbnail ? (
+                      <Image source={{ uri: item.thumbnail }} style={s.videoThumb} contentFit="cover" />
+                    ) : (
+                      <View style={[s.videoThumb, s.missingThumb]}>
+                        <Ionicons name="film-outline" size={20} color={C.dim} />
+                      </View>
+                    )}
+                    <View style={s.videoCopy}>
+                      <Text style={s.videoTitle} numberOfLines={2}>{item.title}</Text>
+                      <Text style={s.videoMeta} numberOfLines={1}>
+                        {item.channel}
+                        {item.fileSize ? ` · ${item.fileSize}` : ''}
+                        {' · '}{item.format.toUpperCase()}
+                      </Text>
+                      {isDownloading && (
+                        <View style={s.progressBarWrap}>
+                          <View style={[s.progressBarFill, { width: `${Math.round(item.progress * 100)}%` as any }]} />
+                        </View>
+                      )}
+                      {isFailed && (
+                        <Text style={[s.videoMeta, { color: '#E84A27' }]}>Download failed</Text>
+                      )}
+                      {isComplete && (
+                        <Text style={[s.videoMeta, { color: '#4CAF50' }]}>Ready offline</Text>
+                      )}
                     </View>
-                  )}
-                  <View style={s.videoCopy}>
-                    <Text style={s.videoTitle} numberOfLines={2}>{item.title}</Text>
-                    <Text style={s.videoMeta} numberOfLines={1}>
-                      {item.channel} {item.fileSize ? `· ${item.fileSize}` : ''} · {item.format.toUpperCase()}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={s.removeButton}
-                  onPress={() => removeDownload(item.videoId)}
-                  hitSlop={10}
-                  accessibilityRole="button"
-                  accessibilityLabel="Delete offline download"
-                >
-                  <Ionicons name="trash-outline" size={20} color={C.muted} />
-                </TouchableOpacity>
-              </View>
-            ))
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={s.removeButton}
+                    onPress={() => {
+                      Alert.alert(
+                        'Delete download',
+                        `Remove "${item.title}" from your device?`,
+                        [
+                          { text: 'Delete', style: 'destructive', onPress: () => removeDownload(item.videoId) },
+                          { text: 'Cancel', style: 'cancel' },
+                        ],
+                      );
+                    }}
+                    hitSlop={10}
+                    accessibilityRole="button"
+                    accessibilityLabel="Delete offline download"
+                  >
+                    <Ionicons name="trash-outline" size={20} color={C.muted} />
+                  </TouchableOpacity>
+                </View>
+              );
+            })
           )
         ) : tab === 'playlists' ? (
           playlists.length === 0 ? (
@@ -454,6 +486,12 @@ const s = StyleSheet.create({
   missingThumb: { alignItems: 'center', justifyContent: 'center' },
   videoCopy: { flex: 1 },
   videoTitle: { color: C.text, fontSize: 13, lineHeight: 18, fontFamily: 'Outfit_600SemiBold' },
+  progressBarWrap: {
+    height: 3, borderRadius: 2, backgroundColor: '#1F1F2E', marginTop: 6, overflow: 'hidden',
+  },
+  progressBarFill: {
+    height: '100%', backgroundColor: '#E84A27', borderRadius: 2,
+  },
   removeButton: { padding: 8 },
   newPlaylist: { flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: 16, marginTop: 4 },
   newPlaylistText: { color: C.accent, fontSize: 14, fontFamily: 'Outfit_600SemiBold' },

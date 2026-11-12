@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
-  ActivityIndicator, Modal, View, Text, ScrollView, TouchableOpacity,
+  ActivityIndicator, Alert, Modal, View, Text, ScrollView, TouchableOpacity,
   StyleSheet, Dimensions, Animated, Platform, Linking, Share,
 } from 'react-native';
 import { Image } from 'expo-image';
@@ -11,6 +11,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppContext } from '@/context/AppContext';
 import { LiveComment, fetchYouTubeComments, fetchYouTubeVideo } from '@/api/youtube';
+import * as DownloadManager from '@/services/download/downloadManager';
 
 const C = {
   bg: '#050507', elevated: '#0C0C12', hover: '#161620',
@@ -52,14 +53,14 @@ const rp = StyleSheet.create({
 
 // ── Main player screen ────────────────────────────────────────────────────────
 export default function PlayerScreen() {
-  const { id, title: routeTitle, channel: routeChannel, thumbnail: routeThumbnail } =
-    useLocalSearchParams<{ id: string; title?: string; channel?: string; thumbnail?: string }>();
+  const { id, title: routeTitle, channel: routeChannel, thumbnail: routeThumbnail, localUri: routeLocalUri } =
+    useLocalSearchParams<{ id: string; title?: string; channel?: string; thumbnail?: string; localUri?: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const {
     likedVideoIds, savedVideoIds, history, playlists, downloads,
     toggleLike, toggleSave, recordHistory, addVideoToPlaylist, removeVideoFromPlaylist,
-    addDownload, removeDownload,
+    addDownload, removeDownload, updateDownloadProgress,
   } = useAppContext();
   const videoId = Array.isArray(id) ? id[0] : id;
   const [liveVideo, setLiveVideo] = useState<Awaited<ReturnType<typeof fetchYouTubeVideo>> | null>(null);
@@ -90,16 +91,28 @@ export default function PlayerScreen() {
   const isSaved = !!videoId && savedVideoIds.includes(videoId);
   const playbackCandidates = (liveVideo?.nativePlaybackCandidates ?? []).filter(candidate => {
     try {
-      return new URL(candidate.uri).protocol === 'https:' &&
-        (candidate.contentType === 'hls' || candidate.contentType === 'progressive');
+      // Accept HLS, progressive muxed, and adaptive-video (expo-video handles all natively)
+      return (
+        new URL(candidate.uri).protocol === 'https:' &&
+        (
+          candidate.contentType === 'hls' ||
+          candidate.contentType === 'progressive' ||
+          candidate.contentType === 'adaptive-video'
+        )
+      );
     } catch {
       return false;
     }
   });
-  const playbackSource = playbackCandidates[candidateIndex] ?? null;
+  // When opened from Library offline tab, inject the local file:// URI as the top candidate
+  const offlineCandidate = routeLocalUri
+    ? [{ uri: routeLocalUri, contentType: 'progressive' as const, qualityLabel: 'Offline' }]
+    : [];
+  const allCandidates = [...offlineCandidate, ...playbackCandidates];
+  const playbackSource = allCandidates[candidateIndex] ?? null;
   const showNativeVideo = !!playbackSource && !playbackError;
   const nativePlayer = useVideoPlayer(
-    playbackSource ? { uri: playbackSource.uri, contentType: playbackSource.contentType } : null,
+    playbackSource ? { uri: playbackSource.uri } : null,
     player => {
     player.audioMixingMode = 'auto';
     player.staysActiveInBackground = false;
@@ -168,7 +181,7 @@ export default function PlayerScreen() {
   useEffect(() => {
     const statusSubscription = nativePlayer.addListener('statusChange', event => {
       if (event.status === 'error') {
-        if (candidateIndex + 1 < playbackCandidates.length) {
+        if (candidateIndex + 1 < allCandidates.length) {
           setCandidateIndex(index => index + 1);
           setPlaybackError(null);
           setPosterVisible(true);
@@ -199,7 +212,7 @@ export default function PlayerScreen() {
       playingSubscription.remove();
       timeSubscription.remove();
     };
-  }, [nativePlayer, candidateIndex, playbackCandidates.length, videoId, liveVideo, recordHistory]);
+  }, [nativePlayer, candidateIndex, allCandidates.length, videoId, liveVideo, recordHistory]);
 
   useEffect(() => {
     setProgress(0);
@@ -289,8 +302,9 @@ export default function PlayerScreen() {
 
   const isDownloaded = !!videoId && downloads.some(d => d.videoId === videoId && d.status === 'completed');
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (!videoId) return;
+
     if (isDownloaded) {
       Alert.alert(
         'Offline Media',
@@ -298,24 +312,83 @@ export default function PlayerScreen() {
         [
           { text: 'Delete download', style: 'destructive', onPress: () => removeDownload(videoId) },
           { text: 'Keep', style: 'cancel' },
-        ]
+        ],
       );
       return;
     }
-    const candidate = playbackCandidates.find(c => c.contentType === 'progressive') || playbackCandidates[0];
+
+    // Prefer progressive MP4 (muxed audio+video); fall back to best available candidate
+    const candidate =
+      playbackCandidates.find(c => c.contentType === 'progressive') ||
+      liveVideo?.nativePlaybackCandidates?.find(c => c.contentType === 'audio') ||
+      playbackCandidates[0];
+
+    if (!candidate?.uri) {
+      Alert.alert(
+        'No stream available',
+        'No downloadable stream was found for this video. Try again once the video loads fully.',
+      );
+      return;
+    }
+
+    const isAudio = candidate.contentType === 'audio';
+    const fileName = DownloadManager.suggestFileName(videoId, isAudio ? 'audio' : 'mp4');
+
+    // Register as 'queued' immediately so the Library tab shows it
     addDownload({
       videoId,
       title: displayTitle,
       channel: displayChannel,
       thumbnail: displayThumbnail,
       duration: liveVideo?.duration,
-      format: 'mp4',
-      status: 'completed',
-      progress: 1,
-      uri: candidate?.uri,
-      fileSize: candidate?.contentLength ? `${(parseInt(candidate.contentLength, 10) / (1024 * 1024)).toFixed(1)} MB` : '18.4 MB',
+      format: isAudio ? 'audio' : 'mp4',
+      status: 'queued',
+      progress: 0,
+      uri: undefined, // will be set on completion
+      fileSize: candidate.contentLength
+        ? `${(parseInt(candidate.contentLength, 10) / (1024 * 1024)).toFixed(1)} MB`
+        : undefined,
     });
-    Alert.alert('Download saved', `"${displayTitle}" is now available offline in your Library.`);
+
+    try {
+      await DownloadManager.start({
+        videoId,
+        uri: candidate.uri,
+        fileName,
+        onProgress: (progress) => {
+          updateDownloadProgress(videoId, progress, 'downloading');
+        },
+        onComplete: (localUri) => {
+          updateDownloadProgress(videoId, 1, 'completed');
+          // Patch the URI so the Library can play it offline
+          addDownload({
+            videoId,
+            title: displayTitle,
+            channel: displayChannel,
+            thumbnail: displayThumbnail,
+            duration: liveVideo?.duration,
+            format: isAudio ? 'audio' : 'mp4',
+            status: 'completed',
+            progress: 1,
+            uri: localUri,
+            fileSize: candidate.contentLength
+              ? `${(parseInt(candidate.contentLength, 10) / (1024 * 1024)).toFixed(1)} MB`
+              : undefined,
+          });
+          Alert.alert(
+            'Download complete',
+            `"${displayTitle}" is now available offline in your Library.`,
+          );
+        },
+        onError: (err) => {
+          updateDownloadProgress(videoId, 0, 'failed');
+          Alert.alert('Download failed', err);
+        },
+      });
+    } catch (err) {
+      updateDownloadProgress(videoId, 0, 'failed');
+      Alert.alert('Download failed', err instanceof Error ? err.message : String(err));
+    }
   };
 
   return (
@@ -354,8 +427,8 @@ export default function PlayerScreen() {
                 <TouchableOpacity
                   style={ps.qualityBadge}
                   onPress={() => {
-                    if (playbackCandidates.length > 1) {
-                      setCandidateIndex(prev => (prev + 1) % playbackCandidates.length);
+                    if (allCandidates.length > 1) {
+                      setCandidateIndex(prev => (prev + 1) % allCandidates.length);
                     }
                   }}
                   accessibilityRole="button"

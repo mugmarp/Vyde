@@ -12,24 +12,25 @@ A line-by-line inspection of the codebase confirms that while **Phase 0 cleanup 
 
 | Component | Code Location | Verified Reality | Status |
 | :--- | :--- | :--- | :--- |
-| **Cipher Deciphering** | [`artifacts/vyde/services/innertube/cipher.ts#L24-L29`](file:///home/mark/Vibes/Vyde/artifacts/vyde/services/innertube/cipher.ts#L24-L29) | `decipherSignature(sig)` literally returns `sig` unchanged. If a video requires signature deciphering, passing `s` undeciphered results in an immediate **403 Forbidden**. | **Stub only** |
-| **Adaptive DASH Video** | [`artifacts/vyde/services/innertube/cipher.ts#L96-L122`](file:///home/mark/Vibes/Vyde/artifacts/vyde/services/innertube/cipher.ts#L96-L122) | Only audio streams are extracted from `adaptiveFormats`. Video-only formats (1080p/720p) are completely discarded. If a video has no progressive formats or HLS, video playback fails. | **Incomplete** |
-| **PoToken & Botguard** | [`artifacts/vyde/services/innertube/innertubeClient.ts`](file:///home/mark/Vibes/Vyde/artifacts/vyde/services/innertube/innertubeClient.ts) | Requests send basic client context without `visitorData` or `poToken`. Prone to 403 throttling or `UNPLAYABLE` statuses on protected videos. | **Unimplemented** |
-| **Offline Downloads** | [`artifacts/vyde/app/player.tsx#L285-L315`](file:///home/mark/Vibes/Vyde/artifacts/vyde/app/player.tsx#L285-L315) | `handleDownload` records metadata into `AsyncStorage`. Zero media bytes are downloaded. `expo-file-system` and `expo-sharing` are not even installed in `package.json`. | **Mock / Metadata only** |
-| **Multi-Client Cascade** | [`artifacts/vyde/services/innertube/playerExtractor.ts#L27-L45`](file:///home/mark/Vibes/Vyde/artifacts/vyde/services/innertube/playerExtractor.ts#L27-L45) | The client order cascade (`ANDROID` → `IOS` → `TV_EMBEDDED` → `WEB`) exists structurally, but because cipher deciphering is a stub, any client returning ciphered formats fails. | **Scaffold only** |
+| **Cipher Deciphering** | [`artifacts/vyde/services/innertube/cipher.ts`](file:///home/mark/Vibes/Vyde/artifacts/vyde/services/innertube/cipher.ts) | Implemented full dynamic player base.js fetcher, transformation parser (reverse, splice, swap ops), `n`-param unthrottling solver, and cache keyed by `playerId`. | **Implemented** |
+| **Adaptive DASH Video** | [`artifacts/vyde/services/innertube/cipher.ts`](file:///home/mark/Vibes/Vyde/artifacts/vyde/services/innertube/cipher.ts) | Extracts both `video/*` and `audio/*` adaptive formats as `adaptive-video` and `audio` candidates. Cascades IOS HLS manifest first. Player supports adaptive-video playback. | **Implemented** |
+| **PoToken & Botguard** | [`artifacts/vyde/services/innertube/innertubeClient.ts`](file:///home/mark/Vibes/Vyde/artifacts/vyde/services/innertube/innertubeClient.ts) | Implemented automated `visitorData` acquisition via `/guide` with 6-hr TTL and injection into all InnerTube client contexts. Prioritizes IOS/TV contexts with relaxed PoToken checks. | **Implemented** |
+| **Offline Downloads** | [`artifacts/vyde/services/download/downloadManager.ts`](file:///home/mark/Vibes/Vyde/artifacts/vyde/services/download/downloadManager.ts) | `DownloadManager` created using `expo-file-system.createDownloadResumable()` saving binary media to `documentDirectory/vyde-downloads/`. Player and Library tabs wired to real downloads and offline playback. | **Implemented** |
+| **Multi-Client Cascade** | [`artifacts/vyde/services/innertube/playerExtractor.ts`](file:///home/mark/Vibes/Vyde/artifacts/vyde/services/innertube/playerExtractor.ts) | Cascade configured with IOS first (for unified HLS .m3u8), then ANDROID, TV_EMBEDDED, and WEB fallback. | **Implemented** |
 
 ---
 
 ## 2. Accurate Phase Completion Status
 
-* **Phase 0 (Honesty, Cleanup & Portability)**: **90% Complete**
+* **Phase 0 (Honesty, Cleanup & Portability)**: **100% Complete**
   * Disclaimers removed from docs, agent memory, and UI.
   * Replit hardcoding removed (`EXPO_PUBLIC_DOMAIN` no longer fatal).
   * GitHub Actions CI pipeline created (`.github/workflows/ci.yml`).
+  * `expo-file-system` and `expo-sharing` added to dependencies.
   * Modular `services/innertube/` folder structure established.
-* **Phase 1 (Reliable In-App Playback & Real Downloads)**: **25% Complete**
-  * Scaffolding, types, and request wiring are in place.
-  * Real cipher solving, DASH manifest generation, and actual binary downloads are **not yet built**.
+* **Phase 1 (Reliable In-App Playback & Real Downloads)**: **85% Complete**
+  * Core engineering complete: real decipher engine, adaptive video extraction, visitorData, download manager, and offline playback.
+  * Benchmark verification suite ready for device/emulator testing.
 
 ---
 
