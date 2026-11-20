@@ -375,9 +375,47 @@ export function extractPlayerId(playerResponse: Record<string, unknown>): string
   return null;
 }
 
+let cachedGlobalPlayerId: string | null = null;
+
+/**
+ * Resolves player ID either from InnerTube response or fallback fetch from YouTube iframe API.
+ */
+export async function getOrFetchPlayerId(playerResponse?: Record<string, unknown>): Promise<string | null> {
+  if (playerResponse) {
+    const extracted = extractPlayerId(playerResponse);
+    if (extracted) {
+      cachedGlobalPlayerId = extracted;
+      return extracted;
+    }
+  }
+
+  if (cachedGlobalPlayerId) return cachedGlobalPlayerId;
+
+  try {
+    const res = await fetch('https://www.youtube.com/iframe_api', {
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+      },
+    });
+    if (res.ok) {
+      const text = await res.text();
+      const m = text.match(/\/s\/player\/([a-zA-Z0-9_-]+)\//);
+      if (m) {
+        cachedGlobalPlayerId = m[1];
+        return m[1];
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  return cachedGlobalPlayerId;
+}
+
 /**
  * Extracts all valid playback candidates from streaming data.
- * Performs async signature deciphering when a playerId is provided.
+ * Performs async signature deciphering when a playerId is provided or resolved.
  */
 export async function extractPlaybackCandidates(
   streamingData?: {
@@ -389,10 +427,11 @@ export async function extractPlaybackCandidates(
 ): Promise<VideoStreamCandidate[]> {
   if (!streamingData) return [];
 
+  const effectivePlayerId = playerId || (await getOrFetchPlayerId());
   const candidates: VideoStreamCandidate[] = [];
   const decipher = async (fmt: InnerTubeFormat): Promise<string | null> => {
-    if (playerId) {
-      return resolveFormatUrlWithDecipher(fmt, playerId);
+    if (effectivePlayerId) {
+      return resolveFormatUrlWithDecipher(fmt, effectivePlayerId);
     }
     // Fallback: sync resolve (works only for unciphered direct URLs)
     return resolveFormatUrl(fmt);

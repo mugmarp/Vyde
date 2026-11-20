@@ -51,6 +51,17 @@ export async function extractPlayer(videoId: string): Promise<NormalizedVideoDet
       CLIENT_CONFIGS.TV_EMBEDDED, // → Living room relaxed enforcement
       CLIENT_CONFIGS.WEB,         // → Web client fallback
     ],
+    // Validator: ensure response is playable and has stream candidates before accepting
+    (res) => {
+      const status = res?.playabilityStatus?.status;
+      const streaming = res?.streamingData;
+      const hasStreams = Boolean(
+        streaming?.hlsManifestUrl ||
+        (Array.isArray(streaming?.formats) && streaming.formats.length > 0) ||
+        (Array.isArray(streaming?.adaptiveFormats) && streaming.adaptiveFormats.length > 0)
+      );
+      return status === 'OK' && hasStreams;
+    },
   );
 
   const status = response.playabilityStatus?.status;

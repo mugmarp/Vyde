@@ -7,17 +7,24 @@ const INNERTUBE_BASE_URL = "https://www.youtube.com/youtubei/v1";
 const CLIENTS = {
   ANDROID: {
     clientName: "ANDROID",
-    clientVersion: "19.29.37",
+    clientVersion: "20.03.36",
     androidSdkVersion: 34,
-    userAgent: "com.google.android.youtube/19.29.37 (Linux; U; Android 14; US) gzip",
+    userAgent: "com.google.android.youtube/20.03.36 (Linux; U; Android 14; US) gzip",
     code: "3",
   },
   IOS: {
     clientName: "IOS",
-    clientVersion: "19.29.1",
+    clientVersion: "20.01.1",
     deviceModel: "iPhone16,2",
-    userAgent: "com.google.ios.youtube/19.29.1 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X; en_US)",
+    userAgent: "com.google.ios.youtube/20.01.1 (iPhone16,2; U; CPU iOS 18_2 like Mac OS X; en_US)",
     code: "5",
+  },
+  VISIONOS: {
+    clientName: "VISIONOS",
+    clientVersion: "0.1",
+    deviceModel: "RealityDevice14,1",
+    userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/1.0 Mobile/15E148 Safari/604.1",
+    code: "101",
   },
   WEB: {
     clientName: "WEB",

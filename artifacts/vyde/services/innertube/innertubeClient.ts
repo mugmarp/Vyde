@@ -130,7 +130,7 @@ export class InnerTubeClient {
 
   /**
    * Executes a multi-client cascade for endpoints like /player.
-   * Returns the first successful response.
+   * Returns the first successful response that satisfies the optional validator.
    */
   async postWithCascade<T>(
     endpoint: string,
@@ -141,6 +141,7 @@ export class InnerTubeClient {
       CLIENT_CONFIGS.TV_EMBEDDED,
       CLIENT_CONFIGS.WEB,
     ],
+    validator?: (data: T) => boolean,
   ): Promise<{ data: T; successfulClient: InnerTubeClientConfig }> {
     let lastError: unknown = null;
 
@@ -149,7 +150,13 @@ export class InnerTubeClient {
         const body = bodyBuilder(config);
         const data = await this.post<T>(endpoint, body, config);
         if (data) {
-          return { data, successfulClient: config };
+          if (!validator || validator(data)) {
+            return { data, successfulClient: config };
+          }
+          console.warn(
+            `[InnerTube] Cascade client ${config.clientName} returned unplayable data for ${endpoint}, falling back...`
+          );
+          lastError = new Error(`Client ${config.clientName} returned unplayable response.`);
         }
       } catch (err) {
         lastError = err;
