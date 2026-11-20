@@ -2,19 +2,9 @@
  * Normalized Stream & Video Types for Vyde
  */
 
-export interface VideoStreamCandidate {
-  uri: string;
-  /** hls = HLS manifest (.m3u8), progressive = muxed MP4, audio = audio-only adaptive, adaptive-video = video-only adaptive */
-  contentType: 'hls' | 'progressive' | 'audio' | 'adaptive-video';
-  qualityLabel: string;
-  bitrate?: number;
-  width?: number;
-  height?: number;
-  audioChannels?: number;
-  audioSampleRate?: number;
-  contentLength?: string;
-  isAdaptive?: boolean;
-}
+import type { PlaybackSource } from '../../domain/media';
+
+export type VideoStreamCandidate = PlaybackSource;
 
 export interface NormalizedVideoDetails {
   id: string;

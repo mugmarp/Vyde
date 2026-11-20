@@ -15,6 +15,7 @@
  */
 
 import { Platform } from 'react-native';
+import type { PlaybackSource } from '@/domain/media';
 import {
   extractBrowse,
   extractSearch,
@@ -47,16 +48,7 @@ export interface LiveVideo {
  *   - `audio`          — Audio-only adaptive stream (M4A/AAC); for background play / audio-only downloads
  *   - `adaptive-video` — Video-only adaptive stream (1080p+); requires paired audio stream for full playback
  */
-export interface NativePlaybackSource {
-  uri: string;
-  contentType: 'progressive' | 'hls' | 'audio' | 'adaptive-video';
-  qualityLabel: string;
-  bitrate?: number;
-  width?: number;
-  height?: number;
-  contentLength?: string;
-  isAdaptive?: boolean;
-}
+export type NativePlaybackSource = PlaybackSource;
 
 /** Full video detail including streaming candidates and related videos. */
 export interface LiveVideoDetails extends LiveVideo {
@@ -209,16 +201,7 @@ export async function fetchYouTubeVideo(id: string): Promise<LiveVideoDetails> {
     const details = await extractPlayer(id);
     return {
       ...details,
-      nativePlaybackCandidates: details.nativePlaybackCandidates.map(c => ({
-        uri: c.uri,
-        contentType: c.contentType,
-        qualityLabel: c.qualityLabel,
-        bitrate: c.bitrate,
-        width: c.width,
-        height: c.height,
-        contentLength: c.contentLength,
-        isAdaptive: c.isAdaptive,
-      })),
+      nativePlaybackCandidates: details.nativePlaybackCandidates,
       provider: 'innertube-direct',
     };
   } catch (err) {

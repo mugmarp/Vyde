@@ -35,6 +35,35 @@ test('HLS-only resolution does not fetch unrelated player JavaScript', async () 
   assert.equal(sources[0].contentType, 'hls');
 });
 
+test('resolution preserves format identity, codec/container and signed URL expiry', async () => {
+  const cipher = createLoader()(cipherPath);
+  const expire = Math.floor(Date.now() / 1000) + 60;
+  const sources = await cipher.extractPlaybackCandidates({
+    expiresInSeconds: '3600',
+    adaptiveFormats: [{ itag: 251, url: `https://example.com/audio?expire=${expire}`, mimeType: 'audio/webm; codecs="opus"', contentLength: '12345' }],
+  });
+  assert.equal(sources[0].formatId, '251');
+  assert.equal(sources[0].mimeType, 'audio/webm');
+  assert.deepEqual(Array.from(sources[0].codecs), ['opus']);
+  assert.equal(sources[0].container, 'webm');
+  assert.equal(sources[0].expiresAt, expire * 1000);
+  assert.equal(sources[0].contentLength, '12345');
+});
+
+test('unknown MIME/expiry stays unknown rather than becoming MP4 or an invalid timestamp', async () => {
+  const cipher = createLoader()(cipherPath);
+  const sources = await cipher.extractPlaybackCandidates({ formats: [{ url: 'https://example.com/media?expire=invalid', mimeType: 'application/octet-stream' }] });
+  assert.equal(sources[0].container, undefined);
+  assert.equal(sources[0].expiresAt, undefined);
+});
+
+test('a malformed HLS URL cannot discard a valid progressive source', async () => {
+  const cipher = createLoader()(cipherPath);
+  const sources = await cipher.extractPlaybackCandidates({ hlsManifestUrl: 'https://%', formats: [{ url: 'https://example.com/video.mp4' }] });
+  assert.equal(sources.length, 1);
+  assert.equal(sources[0].contentType, 'progressive');
+});
+
 function playerFixture(allInvalid = false) {
   const attempts = [];
   const fetch = async (url, options) => {

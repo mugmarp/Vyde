@@ -15,10 +15,10 @@ function downloadFixture() {
     deleteAsync: async uri => { files.delete(uri); },
     moveAsync: async ({ from, to }) => { assert.ok(files.has(from)); files.set(to, files.get(from)); files.delete(from); },
     readDirectoryAsync: async () => [...files.keys()].map(uri => uri.split('/').at(-1)),
-    createDownloadResumable: (uri, destination) => {
+    createDownloadResumable: (uri, destination, options) => {
       const initial = deferred(), resumed = deferred();
       const transfer = {
-        destination, initial, resumed,
+        destination, initial, resumed, headers: options.headers,
         downloadAsync: () => initial.promise,
         pauseAsync: async () => { initial.resolve(undefined); },
         resumeAsync: () => resumed.promise,
@@ -139,4 +139,11 @@ test('partial files count toward storage but are not listed as finished files', 
   f.files.set(f.manager.localUri('other.mp4.part'), 1024 * 1024);
   assert.equal((await f.manager.listDownloads()).length, 1);
   assert.equal(await f.manager.totalStorageMB(), 2);
+});
+
+test('resolver request headers reach the transfer and override defaults', async () => {
+  const f = downloadFixture();
+  await f.start({ headers: { Referer: 'https://example.com/watch', 'X-Fixture': 'source-context' } });
+  assert.equal(f.transfers[0].headers.Referer, 'https://example.com/watch');
+  assert.equal(f.transfers[0].headers['X-Fixture'], 'source-context');
 });

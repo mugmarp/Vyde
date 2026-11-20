@@ -14,7 +14,7 @@
  *   5. Cache everything keyed by playerId so subsequent videos skip the fetch.
  */
 
-import { InnerTubeFormat, VideoStreamCandidate } from './types';
+import { InnerTubeFormat, InnerTubeStreamingData, VideoStreamCandidate } from './types';
 
 // ─── Cache ────────────────────────────────────────────────────────────────────
 
@@ -415,15 +415,30 @@ export async function getOrFetchPlayerId(playerResponse?: Record<string, unknown
  * Performs async signature deciphering when a playerId is provided or resolved.
  */
 export async function extractPlaybackCandidates(
-  streamingData?: {
-    hlsManifestUrl?: string;
-    formats?: InnerTubeFormat[];
-    adaptiveFormats?: InnerTubeFormat[];
-  },
+  streamingData?: InnerTubeStreamingData,
   playerId?: string | null,
 ): Promise<VideoStreamCandidate[]> {
   if (!streamingData) return [];
 
+  const ttl = Number(streamingData.expiresInSeconds);
+  const responseExpiry = Number.isFinite(ttl) && ttl > 0 ? Date.now() + ttl * 1000 : undefined;
+  const isHttpsUrl = (value?: string): value is string => {
+    try { return !!value && new URL(value).protocol === 'https:'; } catch { return false; }
+  };
+  const metadata = (uri: string, format?: InnerTubeFormat): Partial<VideoStreamCandidate> => {
+    const mimeType = format?.mimeType?.split(';')[0].trim().toLowerCase();
+    const codecs = format?.mimeType?.match(/codecs\s*=\s*"([^"]+)"/i)?.[1]
+      .split(',').map(codec => codec.trim()).filter(Boolean);
+    const container: VideoStreamCandidate['container'] = mimeType?.endsWith('/mp4') ? 'mp4'
+      : mimeType?.endsWith('/webm') ? 'webm'
+      : mimeType === 'audio/mpeg' ? 'mp3'
+      : mimeType?.endsWith('/ogg') ? 'ogg' : undefined;
+    let expires = 0;
+    try { expires = Number(new URL(uri).searchParams.get('expire')); } catch { /* Unknown expiry. */ }
+    const urlExpiry = Number.isFinite(expires) && expires > 0 ? expires * 1000 : undefined;
+    const expiresAt = responseExpiry && urlExpiry ? Math.min(responseExpiry, urlExpiry) : responseExpiry ?? urlExpiry;
+    return { formatId: format?.itag !== undefined ? String(format.itag) : undefined, mimeType, codecs, container, expiresAt };
+  };
   let effectivePlayerId = playerId;
   const candidates: VideoStreamCandidate[] = [];
   const decipher = async (fmt: InnerTubeFormat): Promise<string | null> => {
@@ -445,10 +460,10 @@ export async function extractPlaybackCandidates(
 
   // 1. HLS Manifest is top priority: adaptive audio+video, AVPlayer/ExoPlayer native
   if (
-    streamingData.hlsManifestUrl &&
-    streamingData.hlsManifestUrl.startsWith('https://')
+    isHttpsUrl(streamingData.hlsManifestUrl)
   ) {
     candidates.push({
+      ...metadata(streamingData.hlsManifestUrl),
       uri: streamingData.hlsManifestUrl,
       contentType: 'hls',
       qualityLabel: 'Auto (HLS Adaptive)',
@@ -462,6 +477,7 @@ export async function extractPlaybackCandidates(
     if (!url) continue;
 
     candidates.push({
+      ...metadata(url, fmt),
       uri: url,
       contentType: 'progressive',
       qualityLabel: fmt.qualityLabel || (fmt.height ? `${fmt.height}p` : 'MP4'),
@@ -490,6 +506,7 @@ export async function extractPlaybackCandidates(
     if (mime.startsWith('video/')) {
       // Video-only adaptive stream (1080p+)
       candidates.push({
+        ...metadata(url, fmt),
         uri: url,
         contentType: 'adaptive-video',
         qualityLabel: fmt.qualityLabel || (fmt.height ? `${fmt.height}p` : 'Video'),
@@ -502,6 +519,7 @@ export async function extractPlaybackCandidates(
     } else if (mime.startsWith('audio/')) {
       // Audio-only adaptive stream (background play / offline audio)
       candidates.push({
+        ...metadata(url, fmt),
         uri: url,
         contentType: 'audio',
         qualityLabel: fmt.audioQuality

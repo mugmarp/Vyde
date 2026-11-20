@@ -10,7 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppContext } from '@/context/AppContext';
-import { LiveComment, fetchYouTubeComments, fetchYouTubeVideo } from '@/api/youtube';
+import { LiveComment, NativePlaybackSource, fetchYouTubeComments, fetchYouTubeVideo } from '@/api/youtube';
 import * as DownloadManager from '@/services/download/downloadManager';
 import * as Haptics from 'expo-haptics';
 
@@ -175,14 +175,14 @@ export default function PlayerScreen() {
         qualityLabel: `${c.qualityLabel} (No Audio)`,
       }));
   // When opened from Library offline tab, inject the local file:// URI as the top candidate
-  const offlineCandidate = routeLocalUri
+  const offlineCandidate: NativePlaybackSource[] = routeLocalUri
     ? [{ uri: routeLocalUri, contentType: 'progressive' as const, qualityLabel: 'Offline', height: undefined as number | undefined }]
     : [];
   const allCandidates = [...offlineCandidate, ...playbackCandidates];
   const playbackSource = allCandidates[candidateIndex] ?? null;
   const showNativeVideo = !!playbackSource && !playbackError;
   const nativePlayer = useVideoPlayer(
-    playbackSource ? { uri: playbackSource.uri } : null,
+    playbackSource ? { uri: playbackSource.uri, headers: playbackSource.headers } : null,
     player => {
     player.audioMixingMode = 'auto';
     player.staysActiveInBackground = false;
@@ -439,6 +439,7 @@ export default function PlayerScreen() {
         uri: candidate.uri,
         fileName,
         expectedBytes: candidate.contentLength ? Number(candidate.contentLength) : undefined,
+        headers: candidate.headers,
         onProgress: (progress) => {
           updateDownloadProgress(videoId, progress, 'downloading');
         },

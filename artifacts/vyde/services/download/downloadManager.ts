@@ -26,6 +26,8 @@ export interface DownloadStartOptions {
   fileName: string;
   /** Expected complete asset size from the selected format, if known. */
   expectedBytes?: number;
+  /** Source-specific request headers supplied by the resolver. */
+  headers?: Record<string, string>;
   onProgress?: (progress: number, bytesWritten: number, bytesTotal: number) => void;
   onComplete?: (localUri: string) => void;
   onError?: (error: string) => void;
@@ -196,6 +198,7 @@ export async function start(options: DownloadStartOptions): Promise<DownloadTask
           // Some CDN endpoints require a Referer header
           Referer: 'https://www.youtube.com/',
           Origin: 'https://www.youtube.com',
+          ...options.headers,
         },
       },
       callback,
