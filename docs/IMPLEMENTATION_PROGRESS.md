@@ -13,6 +13,8 @@ Execution contract: [implementation master plan](IMPLEMENTATION_MASTER_PLAN.md).
 | `7ebe124` | Extractor normalization-aware fallback; direct-source independence; signature reverse operation; correct player-script identification |
 | `1d2b851` | Shared database readiness, migration-error handling, foreign keys, web/native opener isolation and failed-hydration write protection |
 | `33bd538` | Partial-file publication, HTTP/size/error-body checks, task ownership/cancellation, session pause/resume and download removal cleanup |
+| `4f13d02` | Pinned pnpm, frozen CI installs, regression gates, tag triggers, Android bundle check and corrected setup/status documentation |
+| `40fd320` | Committed the implementation plan, audit/research trail and initial progress ledger |
 
 Subsequent build/documentation commits are recorded in Git history with their validation and remaining limitations.
 
@@ -29,10 +31,16 @@ The three local application edits present before implementation were preserved a
 | Android export | PASS; Hermes bundle produced |
 | Clean Android prebuild | PASS in an isolated temporary copy |
 | Frozen lockfile validation | PASS using `--frozen-lockfile --lockfile-only --ignore-scripts --offline`; this is not a clean full dependency installation |
-| APK compilation/install | Pending; local Gradle/JDK prerequisites are being verified separately |
+| APK compilation/install | NOT COMPLETED; local Gradle distribution/JDK 17 setup remains outstanding |
 | S21 physical acceptance | NOT RUN; no connected test phone during this batch |
 
 The regression suite covers all seven reproduced audit cases, plus failed initialization/retry, failed/successful hydration, HLS-only resolution, all-clients-unusable failure, empty/truncated/error-document responses, pause/resume, cancellation during setup/publication, duplicate destinations, stale handles and storage accounting for partial files. Platform/network boundaries are mocked. These results do not establish current live YouTube coverage or native playback success rates.
+
+### Local APK attempt
+
+Clean prebuild succeeded in `/tmp/vyde-native-baseline-l8quar0e/artifacts/vyde`. The initial Gradle wrapper download failed with `UnknownHostException` for `services.gradle.org`. Passing the environment's proxy settings through `GRADLE_OPTS` allowed retrieval to begin, but the distribution download was not completed in this batch. The host has JDK 25; the configured JDK 17 is not installed. A temporary JDK retrieval was attempted but not completed or installed. Temporary retrieval processes were stopped; no system Java configuration was changed. No Java/Kotlin application compilation or APK installation result is claimed.
+
+Resume with JDK 17 and the complete Gradle 8.14.3 distribution/dependency cache, then run `assembleDebug` and the S21 matrix. CI is configured for JDK 17, but the amended workflow has not been executed remotely during this batch.
 
 ### Build and CI changes
 
