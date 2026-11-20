@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 import * as DownloadManager from '@/services/download/downloadManager';
 import * as Db from '@/services/db';
 import * as GoogleAuth from '@/services/auth';
@@ -182,12 +183,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [subscriptions, setSubscriptions] = useState<Db.DbSubscription[]>([]);
   const [googleUser, setGoogleUser] = useState<GoogleAuth.GoogleAuthUser | null>(null);
   const [hydrated, setHydrated] = useState(false);
+  const [persistenceReady, setPersistenceReady] = useState(false);
   const [storageError, setStorageError] = useState<string | null>(null);
 
   useEffect(() => {
     async function hydrate() {
       try {
         const db = await Db.getDatabase();
+        if (!db && Platform.OS !== 'web') {
+          throw new Error('Local database initialization did not complete.');
+        }
         if (db) {
           // Native SQLite storage
           const [dbHistory, dbLikes, dbSaves, dbPlaylists, dbSubs] = await Promise.all([
@@ -227,6 +232,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // Hydrate optional Google Auth profile
         const savedUser = await GoogleAuth.getSavedGoogleUser();
         if (savedUser) setGoogleUser(savedUser);
+        setPersistenceReady(true);
       } catch (err) {
         console.warn('[AppContext] Hydration error:', err);
         setStorageError('Local data could not be loaded from this device.');
@@ -243,12 +249,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .catch(() => setStorageError('Local data could not be saved on this device.'));
   }, []);
 
-  useEffect(() => { if (hydrated) persist(STORAGE_KEYS.playlists, playlists); }, [playlists, hydrated, persist]);
-  useEffect(() => { if (hydrated) persist(STORAGE_KEYS.liked, likedVideoIds); }, [likedVideoIds, hydrated, persist]);
-  useEffect(() => { if (hydrated) persist(STORAGE_KEYS.saved, savedVideoIds); }, [savedVideoIds, hydrated, persist]);
-  useEffect(() => { if (hydrated) persist(STORAGE_KEYS.history, history); }, [history, hydrated, persist]);
-  useEffect(() => { if (hydrated) persist(STORAGE_KEYS.downloads, downloads); }, [downloads, hydrated, persist]);
-  useEffect(() => { if (hydrated) persist(STORAGE_KEYS.catalog, videoCatalog); }, [videoCatalog, hydrated, persist]);
+  useEffect(() => { if (persistenceReady) persist(STORAGE_KEYS.playlists, playlists); }, [playlists, persistenceReady, persist]);
+  useEffect(() => { if (persistenceReady) persist(STORAGE_KEYS.liked, likedVideoIds); }, [likedVideoIds, persistenceReady, persist]);
+  useEffect(() => { if (persistenceReady) persist(STORAGE_KEYS.saved, savedVideoIds); }, [savedVideoIds, persistenceReady, persist]);
+  useEffect(() => { if (persistenceReady) persist(STORAGE_KEYS.history, history); }, [history, persistenceReady, persist]);
+  useEffect(() => { if (persistenceReady) persist(STORAGE_KEYS.downloads, downloads); }, [downloads, persistenceReady, persist]);
+  useEffect(() => { if (persistenceReady) persist(STORAGE_KEYS.catalog, videoCatalog); }, [videoCatalog, persistenceReady, persist]);
 
   const toggleLike = useCallback((videoId: string) => {
     setLikedVideoIds(prev => {

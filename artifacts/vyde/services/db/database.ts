@@ -14,6 +14,7 @@
 
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { openLocalDatabase } from './sqlite';
 
 // ─── Data Types ───────────────────────────────────────────────────────────────
 
@@ -52,8 +53,7 @@ export interface DbSubscription {
 // ─── Database Instance Management ─────────────────────────────────────────────
 
 type SQLiteDb = any;
-let dbInstance: SQLiteDb | null = null;
-let isInitialized = false;
+let databaseReady: Promise<SQLiteDb | null> | null = null;
 
 /**
  * Initializes the SQLite database, creates required tables and indexes,
@@ -64,17 +64,25 @@ export async function getDatabase(): Promise<SQLiteDb | null> {
     return null; // Web platform uses AsyncStorage bridge fallback
   }
 
-  if (dbInstance && isInitialized) {
-    return dbInstance;
+  if (!databaseReady) {
+    databaseReady = initializeDatabase().then(db => {
+      // Failed initialization is retryable; no caller receives a half-ready DB.
+      if (!db) databaseReady = null;
+      return db;
+    });
   }
+  return databaseReady;
+}
 
+async function initializeDatabase(): Promise<SQLiteDb | null> {
+  let dbInstance: SQLiteDb | null = null;
   try {
-    const SQLite = await import('expo-sqlite');
-    dbInstance = await SQLite.openDatabaseAsync('vyde.db');
+    dbInstance = await openLocalDatabase();
 
     // Run schema creation in WAL mode for concurrent read/write performance
     await dbInstance.execAsync(`
       PRAGMA journal_mode = WAL;
+      PRAGMA foreign_keys = ON;
 
       CREATE TABLE IF NOT EXISTS history (
         videoId TEXT PRIMARY KEY,
@@ -126,12 +134,16 @@ export async function getDatabase(): Promise<SQLiteDb | null> {
       );
     `);
 
-    isInitialized = true;
     await migrateFromAsyncStorage(dbInstance);
 
     return dbInstance;
   } catch (error) {
-    console.warn('[SQLite] SQLite initialization failed, using AsyncStorage fallback:', error);
+    console.warn('[SQLite] SQLite initialization failed:', error);
+    try {
+      await dbInstance?.closeAsync();
+    } catch (closeError) {
+      console.warn('[SQLite] Failed to close uninitialized database:', closeError);
+    }
     return null;
   }
 }
@@ -223,7 +235,8 @@ async function migrateFromAsyncStorage(db: SQLiteDb): Promise<void> {
     await AsyncStorage.setItem(migratedKey, 'true');
     console.log('[SQLite] Legacy AsyncStorage data migrated successfully to SQLite.');
   } catch (err) {
-    console.warn('[SQLite] Data migration error (non-fatal):', err);
+    // A migration failure must not publish readiness or overwrite legacy data.
+    throw err;
   }
 }
 
