@@ -50,7 +50,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { history, storageError, clearHistory, clearLocalData } = useAppContext();
+  const { history, subscriptions, storageError, clearHistory, clearLocalData } = useAppContext();
 
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
   const version = Constants.expoConfig?.version ?? 'Unknown';
@@ -59,7 +59,7 @@ export default function SettingsScreen() {
     if (history.length === 0) return;
     Alert.alert(
       'Clear watch history?',
-      'This removes recent history from this device. Saved videos and playlists will remain.',
+      'This removes recent history from this device. Saved videos, playlists, and subscriptions will remain.',
       [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Clear history', style: 'destructive', onPress: clearHistory },
@@ -70,7 +70,7 @@ export default function SettingsScreen() {
   const confirmClearLocalData = () => {
     Alert.alert(
       'Clear all Vyde data?',
-      'This permanently removes local likes, saves, playlists, watch history, and cached video details from this device.',
+      'This permanently removes local likes, saves, playlists, watch history, subscribed channels, and cached data from this device.',
       [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Clear all data', style: 'destructive', onPress: clearLocalData },
@@ -91,18 +91,24 @@ export default function SettingsScreen() {
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 80 }}>
 
-        <Section title="Local data">
+        <Section title="Local data & Subscriptions">
+          <Row
+            icon="people-outline"
+            label="Subscribed channels"
+            value={`${subscriptions.length}`}
+            detail="Stored locally in isolated SQLite database."
+          />
           <Row
             icon="time-outline"
             label="Clear watch history"
             value={`${history.length}`}
-            detail="Saved videos and playlists will remain."
+            detail="Saved videos, playlists, and subscriptions will remain."
             onPress={history.length > 0 ? confirmClearHistory : undefined}
           />
           <Row
             icon="trash-outline"
             label="Clear all Vyde data"
-            detail="Removes local likes, saves, playlists, and history."
+            detail="Removes local likes, saves, playlists, subscriptions, and history."
             onPress={confirmClearLocalData}
           />
           {storageError && (
@@ -113,12 +119,27 @@ export default function SettingsScreen() {
           )}
         </Section>
 
+        <Section title="Storage & Privacy">
+          <Row
+            icon="server-outline"
+            label="Database engine"
+            value={Platform.OS === 'web' ? 'AsyncStorage' : 'SQLite (WAL)'}
+            detail="Client-side persistent database with zero remote telemetry."
+          />
+          <Row
+            icon="shield-checkmark-outline"
+            label="Privacy model"
+            value="100% On-Device"
+            detail="No mandatory account or tracking. Direct stream deciphering."
+          />
+        </Section>
+
         <Section title="About">
           <Row icon="information-circle-outline" label="Version" value={version} />
           <Row
             icon="phone-portrait-outline"
-            label="Storage"
-            detail="Likes, saves, playlists, and history stay on this device."
+            label="Offline storage"
+            detail="Likes, saves, playlists, downloads, and history stay on this device."
           />
         </Section>
 

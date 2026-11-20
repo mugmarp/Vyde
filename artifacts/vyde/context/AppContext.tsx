@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as DownloadManager from '@/services/download/downloadManager';
+import * as Db from '@/services/db';
+import * as GoogleAuth from '@/services/auth';
 
 export interface Playlist {
   id: string;
@@ -57,6 +59,11 @@ interface AppContextType {
   addDownload: (item: Omit<OfflineDownloadItem, 'downloadedAt'>) => void;
   removeDownload: (videoId: string) => void;
   updateDownloadProgress: (videoId: string, progress: number, status?: OfflineDownloadItem['status']) => void;
+  subscriptions: Db.DbSubscription[];
+  isSubscribed: (channelId: string) => boolean;
+  toggleSubscription: (channelId: string, name: string, thumbnail?: string) => void;
+  googleUser: GoogleAuth.GoogleAuthUser | null;
+  disconnectGoogle: () => Promise<void>;
   clearHistory: () => void;
   clearLocalData: () => void;
 }
@@ -172,21 +179,59 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [history, setHistory] = useState<LocalHistoryItem[]>([]);
   const [downloads, setDownloads] = useState<OfflineDownloadItem[]>([]);
   const [videoCatalog, setVideoCatalog] = useState<Record<string, LocalVideoMetadata>>({});
+  const [subscriptions, setSubscriptions] = useState<Db.DbSubscription[]>([]);
+  const [googleUser, setGoogleUser] = useState<GoogleAuth.GoogleAuthUser | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const [storageError, setStorageError] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all(Object.values(STORAGE_KEYS).map(key => AsyncStorage.getItem(key)))
-      .then(([storedPlaylists, storedLiked, storedSaved, storedHistory, storedDownloads, storedCatalog]) => {
-        setPlaylists(readPlaylists(storedPlaylists));
-        setLikedVideoIds(readStringIds(storedLiked));
-        setSavedVideoIds(readStringIds(storedSaved));
-        setHistory(readHistory(storedHistory));
-        setDownloads(readDownloads(storedDownloads));
-        setVideoCatalog(readCatalog(storedCatalog));
-      })
-      .catch(() => setStorageError('Local data could not be loaded from this device.'))
-      .finally(() => setHydrated(true));
+    async function hydrate() {
+      try {
+        const db = await Db.getDatabase();
+        if (db) {
+          // Native SQLite storage
+          const [dbHistory, dbLikes, dbSaves, dbPlaylists, dbSubs] = await Promise.all([
+            Db.fetchHistory(),
+            Db.fetchLikedVideoIds(),
+            Db.fetchSavedVideoIds(),
+            Db.fetchAllPlaylists(),
+            Db.fetchAllSubscriptions(),
+          ]);
+
+          setHistory(dbHistory);
+          setLikedVideoIds(dbLikes);
+          setSavedVideoIds(dbSaves);
+          setPlaylists(dbPlaylists);
+          setSubscriptions(dbSubs);
+
+          // Downloads remain in AsyncStorage metadata catalog
+          const storedDownloads = await AsyncStorage.getItem(STORAGE_KEYS.downloads);
+          setDownloads(readDownloads(storedDownloads));
+        } else {
+          // Fallback AsyncStorage path (Web preview)
+          const [storedPlaylists, storedLiked, storedSaved, storedHistory, storedDownloads, storedCatalog] =
+            await Promise.all(Object.values(STORAGE_KEYS).map(key => AsyncStorage.getItem(key)));
+
+          setPlaylists(readPlaylists(storedPlaylists));
+          setLikedVideoIds(readStringIds(storedLiked));
+          setSavedVideoIds(readStringIds(storedSaved));
+          setHistory(readHistory(storedHistory));
+          setDownloads(readDownloads(storedDownloads));
+          setVideoCatalog(readCatalog(storedCatalog));
+        }
+
+        // Hydrate optional Google Auth profile
+        const savedUser = await GoogleAuth.getSavedGoogleUser();
+        if (savedUser) setGoogleUser(savedUser);
+      } catch (err) {
+        console.warn('[AppContext] Hydration error:', err);
+        setStorageError('Local data could not be loaded from this device.');
+      } finally {
+        setHydrated(true);
+      }
+    }
+
+    void hydrate();
   }, []);
 
   const persist = useCallback((key: string, value: unknown) => {
@@ -201,23 +246,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => { if (hydrated) persist(STORAGE_KEYS.downloads, downloads); }, [downloads, hydrated, persist]);
   useEffect(() => { if (hydrated) persist(STORAGE_KEYS.catalog, videoCatalog); }, [videoCatalog, hydrated, persist]);
 
-  const toggleLike = useCallback((videoId: string) =>
-    setLikedVideoIds(prev =>
-      prev.includes(videoId) ? prev.filter(id => id !== videoId) : [...prev, videoId]
-    ), []);
+  const toggleLike = useCallback((videoId: string) => {
+    setLikedVideoIds(prev => {
+      const willBeLiked = !prev.includes(videoId);
+      void Db.setVideoLiked(videoId, '', '', '', willBeLiked);
+      return willBeLiked ? [...prev, videoId] : prev.filter(id => id !== videoId);
+    });
+  }, []);
 
-  const toggleSave = useCallback((videoId: string) =>
-    setSavedVideoIds(prev =>
-      prev.includes(videoId) ? prev.filter(id => id !== videoId) : [...prev, videoId]
-    ), []);
+  const toggleSave = useCallback((videoId: string) => {
+    setSavedVideoIds(prev => {
+      const willBeSaved = !prev.includes(videoId);
+      void Db.setVideoSaved(videoId, '', '', '', willBeSaved);
+      return willBeSaved ? [...prev, videoId] : prev.filter(id => id !== videoId);
+    });
+  }, []);
 
   const recordHistory = useCallback((videoId: string, video: LocalVideoMetadata, progress = 0) => {
     const safeProgress = Number.isFinite(progress) ? Math.max(0, Math.min(1, progress)) : 0;
+    const now = Date.now();
+    const item: LocalHistoryItem = { videoId, ...video, progress: safeProgress, lastWatchedAt: now };
+
     setVideoCatalog(previous => ({ ...previous, [videoId]: video }));
     setHistory(prev => [
-      { videoId, ...video, progress: safeProgress, lastWatchedAt: Date.now() },
-      ...prev.filter(item => item.videoId !== videoId),
+      item,
+      ...prev.filter(i => i.videoId !== videoId),
     ].slice(0, 100));
+
+    // Persist asynchronously to SQLite
+    void Db.upsertHistory(item);
   }, []);
 
   const createPlaylist = useCallback((name: string) => {
@@ -285,14 +342,40 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }));
   }, []);
 
-  const clearHistory = useCallback(() => setHistory([]), []);
+  const isSubscribed = useCallback((channelId: string) => {
+    return subscriptions.some(s => s.channelId === channelId);
+  }, [subscriptions]);
+
+  const toggleSubscription = useCallback((channelId: string, name: string, thumbnail = '') => {
+    setSubscriptions(prev => {
+      const exists = prev.some(s => s.channelId === channelId);
+      const willSubscribe = !exists;
+      void Db.setSubscription(channelId, name, thumbnail, willSubscribe);
+      if (willSubscribe) {
+        return [{ channelId, name, thumbnail, subscribedAt: Date.now() }, ...prev];
+      }
+      return prev.filter(s => s.channelId !== channelId);
+    });
+  }, []);
+
+  const disconnectGoogle = useCallback(async () => {
+    await GoogleAuth.disconnectGoogleAuth();
+    setGoogleUser(null);
+  }, []);
+
+  const clearHistory = useCallback(() => {
+    void Db.clearAllHistory();
+    setHistory([]);
+  }, []);
 
   const clearLocalData = useCallback(() => {
+    void Db.resetAllLocalData();
     setPlaylists([]);
     setLikedVideoIds([]);
     setSavedVideoIds([]);
     setHistory([]);
     setDownloads([]);
+    setSubscriptions([]);
     setVideoCatalog({});
   }, []);
 
@@ -315,10 +398,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     addDownload,
     removeDownload,
     updateDownloadProgress,
+    subscriptions,
+    isSubscribed,
+    toggleSubscription,
+    googleUser,
+    disconnectGoogle,
     clearHistory,
     clearLocalData,
   }), [
     playlists, likedVideoIds, savedVideoIds, history, downloads, videoCatalog, hydrated, storageError,
+    subscriptions, isSubscribed, toggleSubscription, googleUser, disconnectGoogle,
     toggleLike, toggleSave, recordHistory, createPlaylist, addVideoToPlaylist,
     removeVideoFromPlaylist, deletePlaylist, addDownload, removeDownload, updateDownloadProgress,
     clearHistory, clearLocalData,

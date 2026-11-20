@@ -62,6 +62,7 @@ export default function PlayerScreen() {
     likedVideoIds, savedVideoIds, history, playlists, downloads,
     toggleLike, toggleSave, recordHistory, addVideoToPlaylist, removeVideoFromPlaylist,
     addDownload, removeDownload, updateDownloadProgress,
+    isSubscribed, toggleSubscription,
   } = useAppContext();
   const videoId = Array.isArray(id) ? id[0] : id;
   const [liveVideo, setLiveVideo] = useState<Awaited<ReturnType<typeof fetchYouTubeVideo>> | null>(null);
@@ -635,9 +636,41 @@ export default function PlayerScreen() {
                   : detailsLoading ? 'Loading video details…' : detailsError ?? 'Video details unavailable'}
               </Text>
             </View>
-            <TouchableOpacity style={ps.subBtn} onPress={() => void Linking.openURL(watchUrl)}>
-              <Text style={ps.subBtnText}>Open YouTube</Text>
-            </TouchableOpacity>
+            {/* Local Channel Subscribe Toggle */}
+            {Boolean(liveVideo?.channelId || displayChannel) && (
+              <TouchableOpacity
+                style={[
+                  ps.subBtn,
+                  isSubscribed(liveVideo?.channelId || displayChannel) && ps.subBtnActive,
+                ]}
+                onPress={() => {
+                  const cId = liveVideo?.channelId || displayChannel;
+                  const willSub = !isSubscribed(cId);
+                  toggleSubscription(cId, displayChannel, liveVideo?.thumbnail);
+                  void Haptics.selectionAsync();
+                  showHud(
+                    willSub ? 'notifications-outline' : 'notifications-off-outline',
+                    willSub ? `Subscribed to ${displayChannel}` : `Unsubscribed from ${displayChannel}`
+                  );
+                }}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  isSubscribed(liveVideo?.channelId || displayChannel)
+                    ? `Unsubscribe from ${displayChannel}`
+                    : `Subscribe to ${displayChannel}`
+                }
+              >
+                <Text
+                  style={[
+                    ps.subBtnText,
+                    isSubscribed(liveVideo?.channelId || displayChannel) && ps.subBtnTextActive,
+                  ]}
+                >
+                  {isSubscribed(liveVideo?.channelId || displayChannel) ? 'Subscribed' : 'Subscribe'}
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
 
@@ -1123,7 +1156,13 @@ const ps = StyleSheet.create({
   chanName: { color: C.text, fontSize: 14, fontFamily: 'Outfit_600SemiBold' },
   viewCount: { color: C.dim, fontSize: 12, marginTop: 1 },
   subBtn: { backgroundColor: C.accent, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20 },
+  subBtnActive: {
+    backgroundColor: C.elevated,
+    borderWidth: 1,
+    borderColor: C.borderLight,
+  },
   subBtnText: { color: '#fff', fontSize: 13, fontFamily: 'Outfit_700Bold' },
+  subBtnTextActive: { color: C.muted },
   actions: { paddingHorizontal: 14, paddingBottom: 14, gap: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border },
   actionBtn: { alignItems: 'center', gap: 6, minWidth: 64 },
   actionIconWrap: {
