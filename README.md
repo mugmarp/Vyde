@@ -4,6 +4,8 @@
 
 Vyde delivers a cinematic video discovery and playback experience with zero mandatory API keys, no middleman VPS requirements for core streaming, an intuitive gesture layer, and sandboxed offline downloads.
 
+**Implementation status:** Android development is underway. See the [implementation master plan](docs/IMPLEMENTATION_MASTER_PLAN.md) for the first-release contract and phase acceptance checks. Feature descriptions below include intended behavior; account sync, durable download recovery, separate-track processing/export, live/captions, and background/PiP still require implementation and device acceptance. Historical completion percentages are not release verification.
+
 ---
 
 ## ✨ Features
@@ -36,7 +38,7 @@ Vyde delivers a cinematic video discovery and playback experience with zero mand
    ├── In-App Player         --> expo-video (AVPlayer on iOS / ExoPlayer on Android) + Gestures & HUD
    ├── Download Manager      --> expo-file-system (Resumable + Audio-Only M4A) + expo-sharing
    ├── Local Database        --> expo-sqlite (WAL mode: History, Likes, Saves, Playlists, Subscriptions)
-   └── Account Bridge        --> Optional Google OAuth 2.0 PKCE (Read-Only)
+   └── Account Bridge        --> Planned optional Google read/write subscriptions and playlists
 ```
 
 ---
@@ -44,24 +46,26 @@ Vyde delivers a cinematic video discovery and playback experience with zero mand
 ## 🚀 Getting Started
 
 ### Prerequisites
-- Node.js 20+
-- npm or pnpm
-- Expo Go app on iOS / Android, or an iOS Simulator / Android Emulator
+- Node.js 22
+- pnpm 12.16.1 (pinned in `package.json`)
+- Android SDK and JDK 17 for native builds; an Android phone/emulator for acceptance testing
+- Expo Go is useful for compatible UI previews; native integration must be tested in a custom Android build
 
 ### Installation & Running
 
 ```bash
 # 1. Install dependencies
-pnpm install
-# or: npm install
+pnpm install --frozen-lockfile
 
 # 2. Run the Expo mobile app
-cd artifacts/vyde
-npx expo start
+pnpm --filter @workspace/vyde dev
 
-# 3. Optional: Run the API helper server (for web browser CORS proxying)
-cd artifacts/api-server
-npm run dev
+# 3. In another terminal at the repository root, optionally run the browser helper
+PORT=3000 pnpm --filter @workspace/api-server dev
+
+# 4. Run deterministic regression tests and workspace typechecks
+pnpm test
+pnpm run typecheck
 ```
 
 ### Environment Variables (Optional)

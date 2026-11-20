@@ -309,7 +309,7 @@ export default function LibraryScreen() {
                   </TouchableOpacity>
                 </View>
               </View>
-            downloads.map(item => {
+            {downloads.map(item => {
               const isComplete = item.status === 'completed';
               const isDownloading = item.status === 'downloading' || item.status === 'queued';
               const isFailed = item.status === 'failed';
