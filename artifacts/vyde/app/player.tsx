@@ -109,9 +109,13 @@ export default function PlayerScreen() {
 
   const playerPanResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponder: () => false,
+      onStartShouldSetPanResponderCapture: () => false,
       onMoveShouldSetPanResponder: (_, gestureState) => {
-        return Math.abs(gestureState.dy) > 10 || Math.abs(gestureState.dx) > 10;
+        return Math.abs(gestureState.dy) > 12 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx) * 1.5;
+      },
+      onMoveShouldSetPanResponderCapture: (_, gestureState) => {
+        return Math.abs(gestureState.dy) > 12 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx) * 1.5;
       },
       onPanResponderGrant: (evt) => {
         panStartX.current = evt.nativeEvent.locationX;
@@ -140,25 +144,36 @@ export default function PlayerScreen() {
     })
   ).current;
   const lastTapRef = useRef({ time: 0, x: 0 });
+  const pendingSeekSecs = useRef<number | null>(null);
   const historyRef = useRef(history);
   historyRef.current = history;
   const isLiked = !!videoId && likedVideoIds.includes(videoId);
   const isSaved = !!videoId && savedVideoIds.includes(videoId);
-  const playbackCandidates = (liveVideo?.nativePlaybackCandidates ?? []).filter(candidate => {
+
+  // Filter for valid playback candidates with audio (HLS and progressive MP4)
+  const fullCandidates = (liveVideo?.nativePlaybackCandidates ?? []).filter(candidate => {
     try {
-      // Accept HLS, progressive muxed, and adaptive-video (expo-video handles all natively)
       return (
         new URL(candidate.uri).protocol === 'https:' &&
-        (
-          candidate.contentType === 'hls' ||
-          candidate.contentType === 'progressive' ||
-          candidate.contentType === 'adaptive-video'
-        )
+        (candidate.contentType === 'hls' || candidate.contentType === 'progressive')
       );
     } catch {
       return false;
     }
   });
+
+  const playbackCandidates = fullCandidates.length > 0
+    ? fullCandidates
+    : (liveVideo?.nativePlaybackCandidates ?? []).filter(c => {
+        try {
+          return new URL(c.uri).protocol === 'https:' && c.contentType === 'adaptive-video';
+        } catch {
+          return false;
+        }
+      }).map(c => ({
+        ...c,
+        qualityLabel: `${c.qualityLabel} (No Audio)`,
+      }));
   // When opened from Library offline tab, inject the local file:// URI as the top candidate
   const offlineCandidate = routeLocalUri
     ? [{ uri: routeLocalUri, contentType: 'progressive' as const, qualityLabel: 'Offline' }]
@@ -386,15 +401,17 @@ export default function PlayerScreen() {
         playbackCandidates.find(c => c.contentType === 'progressive');
     } else {
       candidate =
+        liveVideo?.nativePlaybackCandidates?.find(c => c.contentType === 'progressive') ||
         playbackCandidates.find(c => c.contentType === 'progressive') ||
-        playbackCandidates.find(c => c.contentType === 'adaptive-video') ||
-        playbackCandidates[0];
+        liveVideo?.nativePlaybackCandidates?.find(c => c.contentType === 'adaptive-video');
     }
 
-    if (!candidate?.uri) {
+    if (!candidate?.uri || candidate.contentType === 'hls') {
       Alert.alert(
-        'No stream available',
-        'No downloadable stream was found for this format.',
+        'Format unavailable for direct download',
+        targetFormat === 'mp4'
+          ? 'No standalone progressive MP4 stream was found for this video. You can download the Audio Only (M4A) format to listen offline.'
+          : 'No downloadable audio stream was found for this video.',
       );
       return;
     }
@@ -493,7 +510,17 @@ export default function PlayerScreen() {
               style={StyleSheet.absoluteFill}
               nativeControls={false}
               contentFit={contentFit}
-              onFirstFrameRender={() => setPosterVisible(false)}
+              onFirstFrameRender={() => {
+                setPosterVisible(false);
+                if (pendingSeekSecs.current !== null && nativePlayer.duration > 0) {
+                  const target = pendingSeekSecs.current;
+                  pendingSeekSecs.current = null;
+                  nativePlayer.currentTime = target;
+                }
+                if (speed !== 1.0) {
+                  nativePlayer.playbackRate = speed;
+                }
+              }}
             />
           )}
           {(!showNativeVideo || posterVisible) && (
@@ -891,6 +918,9 @@ export default function PlayerScreen() {
                     key={`${candidate.uri}-${idx}`}
                     style={[ps.qualityOption, isSelected && ps.qualityOptionActive]}
                     onPress={() => {
+                      if (nativePlayer.duration > 0 && nativePlayer.currentTime > 0) {
+                        pendingSeekSecs.current = nativePlayer.currentTime;
+                      }
                       setCandidateIndex(idx);
                       setQualityPickerOpen(false);
                       void Haptics.selectionAsync();
