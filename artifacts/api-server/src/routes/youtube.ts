@@ -4,7 +4,17 @@ const router: IRouter = Router();
 
 const INNERTUBE_BASE_URL = "https://www.youtube.com/youtubei/v1";
 
-const CLIENTS = {
+/** Discriminated client config — `androidSdkVersion` and `deviceModel` are optional */
+interface ClientConfig {
+  clientName: string;
+  clientVersion: string;
+  androidSdkVersion?: number;
+  deviceModel?: string;
+  userAgent: string;
+  code: string;
+}
+
+const CLIENTS: Record<string, ClientConfig> = {
   ANDROID: {
     clientName: "ANDROID",
     clientVersion: "20.03.36",
@@ -48,7 +58,7 @@ function formatDuration(seconds: number): string {
     : `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-async function callInnerTube(endpoint: string, body: Record<string, unknown>, client = CLIENTS.ANDROID) {
+async function callInnerTube(endpoint: string, body: Record<string, unknown>, client: ClientConfig = CLIENTS.ANDROID) {
   const payload = {
     ...body,
     context: {
@@ -89,7 +99,11 @@ async function callInnerTube(endpoint: string, body: Record<string, unknown>, cl
  */
 router.post("/innertube/:endpoint", async (req, res) => {
   const endpoint = req.params.endpoint;
-  const clientName = req.body?.clientName === "IOS" ? CLIENTS.IOS : req.body?.clientName === "WEB" ? CLIENTS.WEB : CLIENTS.ANDROID;
+  const clientName: ClientConfig =
+    req.body?.clientName === "IOS" ? CLIENTS.IOS :
+    req.body?.clientName === "VISIONOS" ? CLIENTS.VISIONOS :
+    req.body?.clientName === "WEB" ? CLIENTS.WEB :
+    CLIENTS.ANDROID;
   try {
     const data = await callInnerTube(endpoint, req.body?.body || {}, clientName);
     res.json(data);
