@@ -204,9 +204,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           setPlaylists(dbPlaylists);
           setSubscriptions(dbSubs);
 
-          // Downloads remain in AsyncStorage metadata catalog
-          const storedDownloads = await AsyncStorage.getItem(STORAGE_KEYS.downloads);
+          // Downloads and video metadata catalog remain in persistent storage
+          const [storedDownloads, storedCatalog] = await Promise.all([
+            AsyncStorage.getItem(STORAGE_KEYS.downloads),
+            AsyncStorage.getItem(STORAGE_KEYS.catalog),
+          ]);
           setDownloads(readDownloads(storedDownloads));
+          setVideoCatalog(readCatalog(storedCatalog));
         } else {
           // Fallback AsyncStorage path (Web preview)
           const [storedPlaylists, storedLiked, storedSaved, storedHistory, storedDownloads, storedCatalog] =
@@ -281,6 +285,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const normalized = name.trim();
     if (!normalized) return null;
     const id = `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    void Db.createNewPlaylist(id, normalized, true);
     setPlaylists(previous => [
       { id, name: normalized, videoIds: [], isPrivate: true },
       ...previous,
@@ -289,6 +294,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const addVideoToPlaylist = useCallback((playlistId: string, videoId: string) => {
+    void Db.addVideoToPlaylistDb(playlistId, videoId);
     setPlaylists(previous => previous.map(playlist =>
       playlist.id === playlistId && !playlist.videoIds.includes(videoId)
         ? { ...playlist, videoIds: [...playlist.videoIds, videoId] }
@@ -297,6 +303,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const removeVideoFromPlaylist = useCallback((playlistId: string, videoId: string) => {
+    void Db.removeVideoFromPlaylistDb(playlistId, videoId);
     setPlaylists(previous => previous.map(playlist =>
       playlist.id === playlistId
         ? { ...playlist, videoIds: playlist.videoIds.filter(id => id !== videoId) }
@@ -305,6 +312,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const deletePlaylist = useCallback((playlistId: string) => {
+    void Db.removePlaylist(playlistId);
     setPlaylists(previous => previous.filter(playlist => playlist.id !== playlistId));
   }, []);
 
