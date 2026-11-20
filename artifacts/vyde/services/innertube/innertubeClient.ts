@@ -141,7 +141,7 @@ export class InnerTubeClient {
       CLIENT_CONFIGS.TV_EMBEDDED,
       CLIENT_CONFIGS.WEB,
     ],
-    validator?: (data: T) => boolean,
+    validator?: (data: T) => boolean | Promise<boolean>,
   ): Promise<{ data: T; successfulClient: InnerTubeClientConfig }> {
     let lastError: unknown = null;
 
@@ -150,7 +150,7 @@ export class InnerTubeClient {
         const body = bodyBuilder(config);
         const data = await this.post<T>(endpoint, body, config);
         if (data) {
-          if (!validator || validator(data)) {
+          if (!validator || await validator(data)) {
             return { data, successfulClient: config };
           }
           console.warn(

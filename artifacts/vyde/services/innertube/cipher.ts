@@ -110,16 +110,19 @@ function extractSigOps(js: string): SigOperation[] {
 
   // 6. Parse the call sequence from the function body
   const callRegex = new RegExp(
-    escapedHelper + '\\.([a-zA-Z$][a-zA-Z0-9$]*)\\(a,(\\d+)\\)',
+    escapedHelper + '\\.([a-zA-Z$][a-zA-Z0-9$]*)\\(a(?:,(\\d+))?\\)',
     'g',
   );
   const ops: SigOperation[] = [];
   let m: RegExpExecArray | null;
   while ((m = callRegex.exec(body)) !== null) {
     const method = m[1];
-    const arg = parseInt(m[2], 10);
     const opType = methodMap[method];
     if (!opType) throw new Error(`Unknown sig method: ${method}`);
+    if (opType !== 'reverse' && m[2] === undefined) {
+      throw new Error(`Missing argument for sig method: ${method}`);
+    }
+    const arg = m[2] === undefined ? 0 : parseInt(m[2], 10);
     ops.push({ op: opType, arg });
   }
 
@@ -300,6 +303,10 @@ export async function resolveFormatUrlWithDecipher(
   playerId: string,
 ): Promise<string | null> {
   try {
+    // A direct URL without an n challenge does not depend on player JS.
+    if (format.url?.startsWith('https://') && !new URL(format.url).searchParams.has('n')) {
+      return format.url;
+    }
     const { sigOps, nFnBody } = await loadPlayerCache(playerId);
 
     let baseUrl: string | null = null;
@@ -358,17 +365,7 @@ export function extractPlayerId(playerResponse: Record<string, unknown>): string
       if (m) return m[1];
     }
 
-    // 4. Try serviceTrackingParams cver param
-    const ctx = playerResponse?.responseContext as any;
-    if (ctx?.serviceTrackingParams) {
-      for (const svc of ctx.serviceTrackingParams) {
-        for (const param of (svc.params || [])) {
-          if (param.key === 'cver' && typeof param.value === 'string') {
-            return param.value;
-          }
-        }
-      }
-    }
+    // serviceTrackingParams.cver is a client version, not a player-script ID.
   } catch {
     // ignore
   }
@@ -427,9 +424,18 @@ export async function extractPlaybackCandidates(
 ): Promise<VideoStreamCandidate[]> {
   if (!streamingData) return [];
 
-  const effectivePlayerId = playerId || (await getOrFetchPlayerId());
+  let effectivePlayerId = playerId;
   const candidates: VideoStreamCandidate[] = [];
   const decipher = async (fmt: InnerTubeFormat): Promise<string | null> => {
+    if (fmt.url?.startsWith('https://')) {
+      try {
+        if (!new URL(fmt.url).searchParams.has('n')) return fmt.url;
+      } catch {
+        return null;
+      }
+    }
+    if (!fmt.url && !fmt.signatureCipher && !fmt.cipher) return null;
+    effectivePlayerId ||= await getOrFetchPlayerId();
     if (effectivePlayerId) {
       return resolveFormatUrlWithDecipher(fmt, effectivePlayerId);
     }

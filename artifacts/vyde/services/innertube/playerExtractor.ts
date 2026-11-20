@@ -21,6 +21,7 @@ import {
   NormalizedVideoDetails,
   NormalizedVideoItem,
   InnerTubePlayerResponse,
+  VideoStreamCandidate,
 } from './types';
 
 function youtubeThumbnail(id: string): string {
@@ -32,7 +33,8 @@ export async function extractPlayer(videoId: string): Promise<NormalizedVideoDet
     throw new Error('Invalid YouTube video ID format.');
   }
 
-  // Multi-client resolution cascade — IOS first to maximise HLS manifest chances
+  let candidates: VideoStreamCandidate[] = [];
+  // Accept a client only after its formats normalize to usable candidates.
   const { data: response } = await defaultInnerTube.postWithCascade<InnerTubePlayerResponse>(
     'player',
     () => ({
@@ -52,7 +54,7 @@ export async function extractPlayer(videoId: string): Promise<NormalizedVideoDet
       CLIENT_CONFIGS.WEB,         // → Web client fallback
     ],
     // Validator: ensure response is playable and has stream candidates before accepting
-    (res) => {
+    async (res) => {
       const status = res?.playabilityStatus?.status;
       const streaming = res?.streamingData;
       const hasStreams = Boolean(
@@ -60,7 +62,12 @@ export async function extractPlayer(videoId: string): Promise<NormalizedVideoDet
         (Array.isArray(streaming?.formats) && streaming.formats.length > 0) ||
         (Array.isArray(streaming?.adaptiveFormats) && streaming.adaptiveFormats.length > 0)
       );
-      return status === 'OK' && hasStreams;
+      if (status !== 'OK' || !hasStreams) return false;
+      candidates = await extractPlaybackCandidates(
+        streaming,
+        extractPlayerId(res as Record<string, unknown>),
+      );
+      return candidates.length > 0;
     },
   );
 
@@ -72,7 +79,6 @@ export async function extractPlayer(videoId: string): Promise<NormalizedVideoDet
 
   const details = response.videoDetails || {};
   const microformat = response.microformat?.playerMicroformatRenderer;
-  const streamingData = response.streamingData;
 
   const lengthSec = parseInt(details.lengthSeconds || microformat?.lengthSeconds || '0', 10);
   const title = details.title || microformat?.title?.simpleText || 'YouTube Video';
@@ -85,22 +91,7 @@ export async function extractPlayer(videoId: string): Promise<NormalizedVideoDet
   const publishedAt = microformat?.publishDate || microformat?.uploadDate || '';
   const livestream = details.isLiveContent === true;
 
-  // Extract the player JS ID for signature deciphering
-  const playerId = extractPlayerId(response as Record<string, unknown>);
-  if (!playerId) {
-    console.warn(`[PlayerExtractor] Could not extract playerId for ${videoId} — cipher may fail`);
-  }
-
-  // Extract playback candidates with async signature deciphering
-  const candidates = await extractPlaybackCandidates(streamingData, playerId);
-
-  if (candidates.length === 0) {
-    console.warn(
-      `[PlayerExtractor] No playback candidates resolved for ${videoId}. Status: ${status}`,
-    );
-  }
-
-  // Extract related videos via /next (non-blocking)
+  // Related metadata remains awaited here; separating it is phase 04 work.
   let relatedVideos: NormalizedVideoItem[] = [];
   try {
     relatedVideos = await extractRelatedVideos(videoId);
