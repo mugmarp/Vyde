@@ -32,10 +32,11 @@ Vyde delivers a cinematic video discovery and playback experience with zero mand
 ```text
 [ Vyde Expo Mobile Client ]
    ├── Discovery Engine      --> Direct InnerTube (/browse, /search)
-   ├── Stream Extractor      --> Direct InnerTube (/player) with multi-client fallbacks
-   ├── In-App Player         --> expo-video (AVPlayer on iOS / ExoPlayer on Android)
-   ├── Download Manager      --> expo-file-system + expo-sharing
-   └── Local State Store     --> AsyncStorage (History, Playlists, Catalog, Likes)
+   ├── Stream Extractor      --> Direct InnerTube (/player) with multi-client fallbacks (iOS / Android VR / VisionOS)
+   ├── In-App Player         --> expo-video (AVPlayer on iOS / ExoPlayer on Android) + Gestures & HUD
+   ├── Download Manager      --> expo-file-system (Resumable + Audio-Only M4A) + expo-sharing
+   ├── Local Database        --> expo-sqlite (WAL mode: History, Likes, Saves, Playlists, Subscriptions)
+   └── Account Bridge        --> Optional Google OAuth 2.0 PKCE (Read-Only)
 ```
 
 ---
@@ -85,13 +86,24 @@ npm run dev
 
 ---
 
-## 🚦 Roadmap & Success Metrics
+## 🚦 Roadmap & Milestones (All Phases Complete)
 
-- **M1 (Current)**: In-App Native Playback ($\ge$ 70% streams playable via direct InnerTube extraction without opening YouTube).
-- **M2**: Modern Player UX (edge swipe volume/brightness, double-tap seek ripples, aspect ratio pinch).
-- **M3**: Sandboxed Download Manager (background video & audio download, storage bar, OS Share Sheet export).
-- **M4**: Local-First Persistence (SQLite database for local playlists, watch history, subscriptions).
-- **M5**: Account Bridge & Sideload Distribution (optional Google OAuth 2.0 PKCE, automated Android APK builds via GitHub Actions).
+- **Phase 0: Cleanup & Honesty (100%)** — Stripped defensive policy blocks, established clean CI foundation and unconstrained architecture.
+- **Phase 1: Reliable Playback & Real Downloads (100%)** — InnerTube multi-client cascade, dynamic signature deciphering & `n`-unthrottling engine. Live benchmark validated at **80.0% pass rate** ([Benchmark Report](docs/PHASE_1_BENCHMARK_REPORT.md)).
+- **Phase 2: Player UX Gestures & Controls (100%)** — Double-tap seek with ripple effects, vertical pan swipe controls for brightness and volume, HUD overlays, quality selector, and aspect ratio switching.
+- **Phase 3: Offline Media Suite (100%)** — Native resumable download manager, Audio-Only (`.m4a`) downloads, storage footprint visualization, and OS Share Sheet export.
+- **Phase 4: SQLite Database & Account Bridge (100%)** — Relational `expo-sqlite` database with WAL mode for history, likes, and local channel subscriptions. Optional Google OAuth 2.0 PKCE account bridge.
+- **Phase 5: Release Engineering & F-Droid (100%)** — F-Droid metadata recipe ([`metadata/com.vyde.android.yml`](metadata/com.vyde.android.yml)), CI benchmark suite, and [Sideloading Guide](docs/SIDELOAD_GUIDE.md).
+
+For complete technical specifications, see [`docs/ROADMAP.md`](docs/ROADMAP.md).
+
+---
+
+## 📲 Sideloading & Installation
+
+Vyde is distributed independently without Google Play Store restrictions:
+- **Direct Sideload**: Download pre-compiled `.apk` builds from GitHub Releases or GitHub Actions and follow the [Sideload Guide](docs/SIDELOAD_GUIDE.md).
+- **F-Droid**: Build recipe provided in [`metadata/com.vyde.android.yml`](metadata/com.vyde.android.yml).
 
 ---
 

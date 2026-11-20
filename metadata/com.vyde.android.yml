@@ -1,0 +1,46 @@
+Categories:
+  - Multimedia
+  - Video
+License: MIT
+AuthorName: Vyde Contributors
+SourceCode: https://github.com/mugmarp/Vyde
+IssueTracker: https://github.com/mugmarp/Vyde/issues
+Changelog: https://github.com/mugmarp/Vyde/releases
+
+AutoName: Vyde
+Summary: Privacy-respecting, client-side streaming and download client for YouTube
+Description: |-
+  Vyde is a lightweight, privacy-respecting client-side YouTube mobile client
+  inspired by NewPipe and LibreTube. Built with React Native and Expo, Vyde operates
+  strictly client-side with dynamic signature deciphering and unthrottled stream
+  extraction, with zero proprietary account or Play Services dependencies.
+
+  Features:
+  * Direct InnerTube stream deciphering (HLS master playlists & Progressive MP4)
+  * Real offline downloads with native resumable file I/O and audio-only M4A support
+  * Double-tap gesture seek (-10s / +10s) with haptic feedback
+  * Vertical pan gesture swipe controls for brightness and volume
+  * HUD pill indicators for speed, quality, volume, and aspect ratio
+  * Local-first SQLite database with WAL mode for history, likes, and playlists
+  * On-device channel subscriptions with zero telemetry
+  * Optional Google OAuth 2.0 PKCE bridge for read-only library imports
+  * Dark-first AMOLED interface with battery-efficient rendering
+
+RepoType: git
+Repo: https://github.com/mugmarp/Vyde.git
+
+Builds:
+  - versionName: 1.0.0
+    versionCode: 1
+    commit: main
+    subdir: artifacts/vyde/android
+    gradle:
+      - yes
+    prebuild:
+      - pnpm install --no-frozen-lockfile
+      - cd artifacts/vyde && npx expo prebuild --platform android --no-install
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags
+CurrentVersion: 1.0.0
+CurrentVersionCode: 1

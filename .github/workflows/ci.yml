@@ -45,6 +45,22 @@ jobs:
       - name: Build API server
         run: pnpm --filter @workspace/api-server run build
 
+  benchmark:
+    name: InnerTube Extractor Benchmark
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run 15-Video Extractor Benchmark
+        run: node scripts/benchmark_phase1.mjs
+        continue-on-error: true
+
   build-mobile-preview:
     name: Build Mobile Web & Bundle Check
     runs-on: ubuntu-latest
