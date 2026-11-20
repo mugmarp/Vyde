@@ -176,7 +176,7 @@ export default function PlayerScreen() {
       }));
   // When opened from Library offline tab, inject the local file:// URI as the top candidate
   const offlineCandidate = routeLocalUri
-    ? [{ uri: routeLocalUri, contentType: 'progressive' as const, qualityLabel: 'Offline' }]
+    ? [{ uri: routeLocalUri, contentType: 'progressive' as const, qualityLabel: 'Offline', height: undefined as number | undefined }]
     : [];
   const allCandidates = [...offlineCandidate, ...playbackCandidates];
   const playbackSource = allCandidates[candidateIndex] ?? null;
@@ -438,6 +438,7 @@ export default function PlayerScreen() {
         videoId,
         uri: candidate.uri,
         fileName,
+        expectedBytes: candidate.contentLength ? Number(candidate.contentLength) : undefined,
         onProgress: (progress) => {
           updateDownloadProgress(videoId, progress, 'downloading');
         },

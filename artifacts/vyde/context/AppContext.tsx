@@ -330,20 +330,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const removeDownload = useCallback((videoId: string) => {
-    // Delete the actual file from disk if it exists
-    setDownloads(prev => {
-      const item = prev.find(d => d.videoId === videoId);
-      if (item?.uri) {
-        // Best-effort async delete — don't block UI
-        const fileName = DownloadManager.suggestFileName(
-          videoId,
-          item.format === 'audio' ? 'audio' : 'mp4',
-        );
-        void DownloadManager.deleteDownload(fileName);
-      }
-      return prev.filter(d => d.videoId !== videoId);
-    });
-  }, []);
+    const item = downloads.find(d => d.videoId === videoId);
+    if (item) {
+      // Invalidate active callbacks even when there is no completed URI yet.
+      const fileName = DownloadManager.suggestFileName(videoId, item.format === 'audio' ? 'audio' : 'mp4');
+      void DownloadManager.deleteDownload(fileName)
+        .catch(() => setStorageError('The download could not be removed from this device.'));
+    }
+    setDownloads(prev => prev.filter(d => d.videoId !== videoId));
+  }, [downloads]);
 
   const updateDownloadProgress = useCallback((videoId: string, progress: number, status?: OfflineDownloadItem['status']) => {
     setDownloads(prev => prev.map(d => {
@@ -383,6 +378,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const clearLocalData = useCallback(() => {
+    for (const item of downloads) {
+      const fileName = DownloadManager.suggestFileName(item.videoId, item.format === 'audio' ? 'audio' : 'mp4');
+      void DownloadManager.deleteDownload(fileName)
+        .catch(() => setStorageError('Some downloaded files could not be removed.'));
+    }
     void Db.resetAllLocalData();
     setPlaylists([]);
     setLikedVideoIds([]);
@@ -391,7 +391,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setDownloads([]);
     setSubscriptions([]);
     setVideoCatalog({});
-  }, []);
+  }, [downloads]);
 
   const value = useMemo(() => ({
     playlists,
