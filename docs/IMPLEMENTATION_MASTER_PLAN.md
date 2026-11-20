@@ -101,7 +101,7 @@ React screens issue commands and subscribe to state. They do not own downloads, 
 | --- | --- | --- | --- |
 | 00 | Reproducible build and truthful baseline | Current audit | In progress; local checks pass, APK/device gate pending |
 | 01 | Containment of reproduced correctness defects | 00 | Implemented regression fixes; native/restart acceptance pending |
-| 02 | Extractor/player/processing/auth feasibility decisions | 00; can investigate during 01 | Planned |
+| 02 | Extractor/player/processing/auth feasibility decisions | 00; can investigate during 01 | In progress; [source evaluation](decisions/ADR-001_MEDIA_ENGINE_EVALUATION.md), device comparison pending |
 | 03 | Reliable local data and job foundations | 01 | Planned |
 | 04 | Maintainable media resolver and transport support | 02 | Planned |
 | 05 | Complete Android playback, live and captions | 03/04 | Planned |

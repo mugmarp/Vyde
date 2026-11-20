@@ -10,7 +10,9 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Keep main APK builds running while follow-up commits queue; superseded PR
+  # checks may be cancelled without discarding a device-test artifact build.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   verify:
@@ -105,6 +107,7 @@ jobs:
   android-build:
     name: Android Sideload / F-Droid APK Preparation
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     needs: verify
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
     steps:

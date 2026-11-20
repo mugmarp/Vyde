@@ -73,3 +73,15 @@ No LibreTube/Tubular/SnapTube code or proprietary binaries were integrated. No d
 3. Start phase 03 schema/repository work and preserve the regression cases while adding durable identities/state.
 
 Do not mark phases 00/01 fully accepted until their native/data-recovery gates have supporting evidence.
+
+## Batch 2 — Engine evaluation and media-source boundary
+
+Source evaluation is recorded in [ADR-001](decisions/ADR-001_MEDIA_ENGINE_EVALUATION.md). It compares the existing engine, YouTube.js and NewPipe-derived native routes without selecting or installing a replacement. Important source findings: a React Native export does not supply YouTube.js's required decipher evaluator or cache/runtime integration, and an extractor alone does not supply the player/download transport implementation.
+
+The shared `PlaybackSource` contract now carries format ID, MIME, codec/container, audio properties, expiry and optional request headers through resolution and the public API. Existing playback/download consumers forward source headers. Unknown metadata is not guessed. This prepares fair adapter comparison and future refresh/processing work; it does not yet implement those capabilities.
+
+Local targeted verification: 30 production-module regression tests pass, including preservation of format/expiry/header data, unknown metadata, malformed HLS fallback and the API boundary. Build/typecheck/export verification for these changes belongs to GitHub Actions and is pending the new run; no local build was run for this batch.
+
+Baseline CI run [44778627111](https://github.com/mugmarp/Vyde/actions/runs/44778627111), at commit `0d55147`, passed verification and web/Android exports while APK compilation was still running when batch 2 was prepared. That run does not verify newer source changes. Main workflow concurrency now preserves running APK builds across subsequent pushes; PR checks remain cancellable. New Android jobs have a 45-minute bound.
+
+No native runtime/engine dependency or application-license change has been made. S21 runtime comparisons remain required.
