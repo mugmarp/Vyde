@@ -4,6 +4,12 @@ Updated: 2026-11-20 (Africa/Kampala)
 
 Execution contract: [implementation master plan](IMPLEMENTATION_MASTER_PLAN.md). Original evidence: [systematic re-audit](SYSTEMATIC_REAUDIT_2026-11-20.md).
 
+## Current build policy and branch allocation
+
+The owner clarified that builds belong in GitHub Actions. Local JDK/Gradle setup is no longer a prerequisite or the next implementation task. Generate and verify APKs through CI, then run the acceptance matrix on the S21. Earlier local attempts below remain historical evidence only.
+
+Website planning is committed as `08181ec` on remote branch `feature/web`, in `docs/WEB_VERSION_PLAN.md`. That branch contains feasibility, architecture alternatives, phased work and deployment recommendations. Android development remains on `main`.
+
 ## Batch 1 — Build baseline and correctness containment
 
 ### Commits
@@ -40,7 +46,7 @@ The regression suite covers all seven reproduced audit cases, plus failed initia
 
 Clean prebuild succeeded in `/tmp/vyde-native-baseline-l8quar0e/artifacts/vyde`. The initial Gradle wrapper download failed with `UnknownHostException` for `services.gradle.org`. Passing the environment's proxy settings through `GRADLE_OPTS` allowed retrieval to begin, but the distribution download was not completed in this batch. The host has JDK 25; the configured JDK 17 is not installed. A temporary JDK retrieval was attempted but not completed or installed. Temporary retrieval processes were stopped; no system Java configuration was changed. No Java/Kotlin application compilation or APK installation result is claimed.
 
-Resume with JDK 17 and the complete Gradle 8.14.3 distribution/dependency cache, then run `assembleDebug` and the S21 matrix. CI is configured for JDK 17, but the amended workflow has not been executed remotely during this batch.
+The earlier local-resumption approach is superseded by the owner's CI-only build policy. CI supplies JDK 17 and runs `assembleDebug`; obtain its artifact and run the S21 matrix. The table above records batch-1 results, not the status of later GitHub Actions runs.
 
 ### Build and CI changes
 
@@ -62,7 +68,7 @@ No LibreTube/Tubular/SnapTube code or proprietary binaries were integrated. No d
 
 ## Next work
 
-1. Complete the Android build/device baseline without conflating prebuild or Hermes export with APK acceptance.
+1. Complete the Android build baseline in GitHub Actions, obtain the APK artifact and test on the S21 without conflating bundle export with device acceptance.
 2. Record phase 02 decisions for extractor, player, download transport, processing and Google authorization using measured prototypes.
 3. Start phase 03 schema/repository work and preserve the regression cases while adding durable identities/state.
 

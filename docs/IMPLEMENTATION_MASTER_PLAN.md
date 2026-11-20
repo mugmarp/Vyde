@@ -25,6 +25,12 @@ Vyde will be a fully functional, client-side YouTube alternative. Extraction and
 | First Android media release | Reliable video/audio, HD, downloads, background playback, PiP, live streams, and captions |
 | Native dependency approach | Evaluate first and document tradeoffs; no native engine or GPL/license change is preselected |
 
+### Build execution policy
+
+All build/export/package verification runs in GitHub Actions, as clarified by the owner after batch 1. Local Java/Gradle installation is not a prerequisite and should not consume implementation work. Use CI's pinned Node/pnpm/JDK toolchain to generate APKs and web artifacts, then test the APK on the S21. Local code inspection and targeted tests can support implementation, but do not substitute for the CI build gate.
+
+The website feasibility/implementation plan is preserved separately on branch `feature/web` at `docs/WEB_VERSION_PLAN.md`. Android/shared development continues on `main`; web work can resume later without changing the current Android release priority.
+
 ### Release scope and later scope
 
 The first Android release requires the full core above, reliable local library/recovery, and the first account milestone. Anonymous use must remain independent of account setup and a Vyde-hosted backend. Optional official Google sync requires configured credentials and quota.
@@ -118,7 +124,7 @@ Verification and maintenance span every phase. Dependencies describe logical pre
 - P00.1 Preserve/review the three local corrections, fix the two invalid filesystem options, and make the application type-clean.
 - P00.2 Pin package-manager/toolchain versions; document clean pnpm setup and frozen-lockfile installation. Remove contradictory npm/Replit-only assumptions from normal setup.
 - P00.3 Repair native/web import boundaries and make browser-preview checks explicit without coupling native architecture to a hosted proxy.
-- P00.4 Reproduce a custom Android development build with correct application ID/version configuration; inspect generated native permissions/config.
+- P00.4 Reproduce a custom Android development build in GitHub Actions with correct application ID/version configuration; inspect generated native permissions/config and obtain its APK artifact.
 - P00.5 Establish a verification ledger identifying commit, dependency lock, device/OS, corpus, commands and results. Replace unverified completion claims in active docs/metadata with measured status.
 
 **Exit gate:** clean checkout passes application/API checks, documented preview checks, and builds an APK that launches on the S21. Preserve an installation/build log. Do not upgrade Expo merely to hide the current defects.

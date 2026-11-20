@@ -48,7 +48,8 @@ Vyde delivers a cinematic video discovery and playback experience with zero mand
 ### Prerequisites
 - Node.js 22
 - pnpm 12.16.1 (pinned in `package.json`)
-- Android SDK and JDK 17 for native builds; an Android phone/emulator for acceptance testing
+- Builds run in GitHub Actions with Android SDK/JDK 17; no local Java/Gradle setup is required
+- An Android phone/emulator for acceptance testing of the CI-generated APK
 - Expo Go is useful for compatible UI previews; native integration must be tested in a custom Android build
 
 ### Installation & Running
