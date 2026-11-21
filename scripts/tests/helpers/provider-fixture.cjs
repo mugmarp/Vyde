@@ -2,7 +2,7 @@ const { createLoader, settle } = require('./load-typescript.cjs');
 
 // A small hook host drives the production provider's async initialization and
 // subsequent persistence effects. It does not render or simulate native UI.
-function providerFixture({ database = {}, failReads = false, platform = 'android' } = {}) {
+function providerFixture({ database = {}, failReads = false, databaseReadsFail = false, platform = 'android' } = {}) {
   const state = [], dependencies = [], effects = [], writes = [], deleted = [];
   let cursor = 0, reads = 0;
   const hooks = {
@@ -23,7 +23,8 @@ function providerFixture({ database = {}, failReads = false, platform = 'android
   };
   const db = {
     getDatabase: async () => database,
-    fetchHistory: async () => [], fetchLikedVideoIds: async () => [],
+    fetchHistory: async () => { if (databaseReadsFail) throw new Error('query failed'); return []; },
+    fetchLikedVideoIds: async () => [],
     fetchSavedVideoIds: async () => [], fetchAllPlaylists: async () => [],
     fetchAllSubscriptions: async () => [],
   };

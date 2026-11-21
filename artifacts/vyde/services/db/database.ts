@@ -93,10 +93,23 @@ async function initializeDatabase(): Promise<SQLiteDb | null> {
   }
 }
 
+export class LocalStorageReadError extends Error {
+  constructor(public readonly collection: string, public readonly originalError?: unknown) {
+    super(`Local ${collection} could not be loaded.`);
+    this.name = 'LocalStorageReadError';
+  }
+}
+
+async function getReadDatabase(collection: string): Promise<SQLiteDb | null> {
+  const db = await getDatabase();
+  if (!db && Platform.OS !== 'web') throw new LocalStorageReadError(collection);
+  return db;
+}
+
 // ─── History Operations ───────────────────────────────────────────────────────
 
 export async function fetchHistory(): Promise<DbHistoryItem[]> {
-  const db = await getDatabase();
+  const db = await getReadDatabase('history');
   if (!db) return [];
   try {
     const rows = await db.getAllAsync(
@@ -110,8 +123,8 @@ export async function fetchHistory(): Promise<DbHistoryItem[]> {
       progress: typeof r.progress === 'number' ? r.progress : 0,
       lastWatchedAt: r.lastWatchedAt || 0,
     }));
-  } catch {
-    return [];
+  } catch (error) {
+    throw new LocalStorageReadError('history', error);
   }
 }
 
@@ -142,13 +155,13 @@ export async function clearAllHistory(): Promise<void> {
 // ─── Likes Operations ─────────────────────────────────────────────────────────
 
 export async function fetchLikedVideoIds(): Promise<string[]> {
-  const db = await getDatabase();
+  const db = await getReadDatabase('likes');
   if (!db) return [];
   try {
     const rows = await db.getAllAsync(`SELECT videoId FROM likes ORDER BY likedAt DESC`);
     return (rows as any[]).map(r => r.videoId);
-  } catch {
-    return [];
+  } catch (error) {
+    throw new LocalStorageReadError('likes', error);
   }
 }
 
@@ -172,13 +185,13 @@ export async function setVideoLiked(videoId: string, title = '', channel = '', t
 // ─── Saves Operations ─────────────────────────────────────────────────────────
 
 export async function fetchSavedVideoIds(): Promise<string[]> {
-  const db = await getDatabase();
+  const db = await getReadDatabase('saves');
   if (!db) return [];
   try {
     const rows = await db.getAllAsync(`SELECT videoId FROM saves ORDER BY savedAt DESC`);
     return (rows as any[]).map(r => r.videoId);
-  } catch {
-    return [];
+  } catch (error) {
+    throw new LocalStorageReadError('saves', error);
   }
 }
 
@@ -202,7 +215,7 @@ export async function setVideoSaved(videoId: string, title = '', channel = '', t
 // ─── Playlists Operations ─────────────────────────────────────────────────────
 
 export async function fetchAllPlaylists(): Promise<DbPlaylist[]> {
-  const db = await getDatabase();
+  const db = await getReadDatabase('playlists');
   if (!db) return [];
   try {
     const playlists = await db.getAllAsync(`SELECT id, name, isPrivate, createdAt FROM playlists ORDER BY createdAt ASC`) as any[];
@@ -221,8 +234,8 @@ export async function fetchAllPlaylists(): Promise<DbPlaylist[]> {
       createdAt: pl.createdAt,
       videoIds: videoMap.get(pl.id) || [],
     }));
-  } catch {
-    return [];
+  } catch (error) {
+    throw new LocalStorageReadError('playlists', error);
   }
 }
 
@@ -279,7 +292,7 @@ export async function removeVideoFromPlaylistDb(playlistId: string, videoId: str
 // ─── Subscriptions Operations ─────────────────────────────────────────────────
 
 export async function fetchAllSubscriptions(): Promise<DbSubscription[]> {
-  const db = await getDatabase();
+  const db = await getReadDatabase('subscriptions');
   if (!db) return [];
   try {
     const rows = await db.getAllAsync(`SELECT channelId, name, thumbnail, subscribedAt FROM subscriptions ORDER BY subscribedAt DESC`);
@@ -289,8 +302,8 @@ export async function fetchAllSubscriptions(): Promise<DbSubscription[]> {
       thumbnail: r.thumbnail || '',
       subscribedAt: r.subscribedAt,
     }));
-  } catch {
-    return [];
+  } catch (error) {
+    throw new LocalStorageReadError('subscriptions', error);
   }
 }
 

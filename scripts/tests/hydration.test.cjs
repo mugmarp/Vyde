@@ -28,3 +28,11 @@ test('successful hydration permits persistence', async () => {
   assert.equal(context.storageError, null);
   assert.equal(f.writes.length, 6);
 });
+
+test('a repository query failure cannot hydrate empty collections over stored data', async () => {
+  const f = providerFixture({ databaseReadsFail: true });
+  await f.render();
+  const context = await f.render();
+  assert.match(context.storageError, /could not be loaded/);
+  assert.equal(f.writes.length, 0);
+});
