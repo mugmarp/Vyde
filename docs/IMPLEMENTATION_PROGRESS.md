@@ -97,3 +97,7 @@ Local targeted verification: 38 tests pass, including eight new cases executing 
 The new workflow also verifies APK package/signature and emits `apk-provenance.json`. CI build/typecheck/provenance verification for batch 3 remains pending its new run; only the earlier source revision is covered by the successful runs above. No local build/export/Gradle compilation was performed for this batch.
 
 Broader phase 03 work remains: canonical metadata storage, entry/job identities, repository error/rollback handling, backup/restore and recovery UX. Versioned initialization is a foundation, not completion of the entire persistence phase.
+
+The follow-up read-error fix (`37aab5f`) now distinguishes native initialization/query failures from empty collections across history, likes, saves, playlists and subscriptions. Hydration keeps mirror writes disabled on those failures. The suite has 46 passing targeted tests. Mutation error/rollback handling and retry UX remain incomplete.
+
+The owner also requested release APKs and selected unsigned release output until signing is configured. CI now uses independent debug/release matrix jobs, explicitly overrides the generated template's debug signing for release, and records variant-aware provenance. See [CI artifact behavior](CI_ANDROID_ARTIFACTS.md). This workflow change still requires its first successful run; no signing credentials were created.
