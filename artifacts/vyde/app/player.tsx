@@ -389,7 +389,10 @@ export default function PlayerScreen() {
       resetControlsTimer();
       return;
     }
-    void Linking.openURL(watchUrl);
+    if (detailsLoading) return;
+    setCandidateIndex(0);
+    setPlaybackError(null);
+    setDetailsRetryKey(key => key + 1);
   };
 
   const topPad = Platform.OS === 'web' ? 10 : insets.top;
@@ -638,16 +641,21 @@ export default function PlayerScreen() {
           {/* Centre play/pause */}
           {showControls && (
             <View style={ps.centreControls}>
-              {!showNativeVideo ? (
+              {!showNativeVideo ? detailsLoading ? (
+                <View style={ps.playbackPending} accessibilityLabel="Loading video">
+                  <ActivityIndicator color="#fff" />
+                  <Text style={ps.playbackRetryText}>Loading video…</Text>
+                </View>
+              ) : (
                 <TouchableOpacity
-                  style={ps.watchButton}
+                  style={ps.playbackRetry}
                   onPress={togglePlayback}
                   activeOpacity={0.85}
+                  accessibilityRole="button"
+                  accessibilityLabel="Retry playback in Vyde"
                 >
-                  <Ionicons name="logo-youtube" size={22} color="#fff" />
-                  <Text style={ps.watchButtonText}>
-                    {playbackError ? 'Watch on YouTube' : 'Open on YouTube'}
-                  </Text>
+                  <Ionicons name="refresh" size={22} color="#fff" />
+                  <Text style={ps.playbackRetryText}>Retry playback</Text>
                 </TouchableOpacity>
               ) : (
                 <>
@@ -782,6 +790,17 @@ export default function PlayerScreen() {
           </View>
         )}
         {playbackError && <Text style={[ps.commentText, { paddingHorizontal: 14, paddingVertical: 8 }]}>{playbackError}</Text>}
+
+        {(detailsError || playbackError) && (
+          <TouchableOpacity
+            onPress={() => { void Linking.openURL(watchUrl); }}
+            accessibilityRole="link"
+            accessibilityLabel="Open this video externally in YouTube"
+            style={{ paddingHorizontal: 14, paddingVertical: 10 }}
+          >
+            <Text style={{ color: C.muted, fontSize: 13 }}>Open in YouTube</Text>
+          </TouchableOpacity>
+        )}
 
         {/* Description */}
         {displayDescription ? <View style={ps.descBlock}>
@@ -1225,12 +1244,13 @@ const ps = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
     borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.3)',
   },
-  watchButton: {
+  playbackPending: { alignItems: 'center', gap: 10 },
+  playbackRetry: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
-    backgroundColor: '#FF0033', borderRadius: 24,
+    backgroundColor: C.accent, borderRadius: 24,
     paddingHorizontal: 18, paddingVertical: 12,
   },
-  watchButtonText: { color: '#fff', fontSize: 14, fontFamily: 'Outfit_700Bold' },
+  playbackRetryText: { color: '#fff', fontSize: 14, fontFamily: 'Outfit_700Bold' },
   seekArea: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 0 },
   seekTrack: { height: 4, backgroundColor: 'rgba(255,255,255,0.25)', position: 'relative' },
   seekFill: { height: 4, backgroundColor: C.accent, position: 'absolute', left: 0, top: 0 },
