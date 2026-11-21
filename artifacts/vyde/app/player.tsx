@@ -71,6 +71,12 @@ export default function PlayerScreen() {
   const [commentsLoading, setCommentsLoading] = useState(true);
   const [commentsError, setCommentsError] = useState<string | null>(null);
   const [commentsRetryKey, setCommentsRetryKey] = useState(0);
+  const [commentsNextPage, setCommentsNextPage] = useState<string | null>(null);
+  const [commentsDisabled, setCommentsDisabled] = useState(false);
+  const [commentsLoadingMore, setCommentsLoadingMore] = useState(false);
+  const [commentsPageError, setCommentsPageError] = useState<string | null>(null);
+  const commentsGeneration = useRef(0);
+  const commentsPagePending = useRef(false);
   const [detailsLoading, setDetailsLoading] = useState(true);
   const [detailsError, setDetailsError] = useState<string | null>(null);
   const [detailsRetryKey, setDetailsRetryKey] = useState(0);
@@ -223,6 +229,12 @@ export default function PlayerScreen() {
   }, [videoId, detailsRetryKey]);
 
   useEffect(() => {
+    const requestGeneration = ++commentsGeneration.current;
+    commentsPagePending.current = false;
+    setCommentsNextPage(null);
+    setCommentsDisabled(false);
+    setCommentsLoadingMore(false);
+    setCommentsPageError(null);
     if (!videoId || !/^[\w-]{6,20}$/.test(videoId)) {
       setCommentsLoading(false);
       setCommentsError('This video link is invalid.');
@@ -238,6 +250,8 @@ export default function PlayerScreen() {
         if (!active) return;
         setComments(result.items);
         setCommentCount(result.commentCount);
+        setCommentsNextPage(result.nextPage ?? null);
+        setCommentsDisabled(result.disabled === true);
       })
       .catch(error => {
         if (active) setCommentsError(error instanceof Error ? error.message : 'Comments could not be loaded.');
@@ -245,8 +259,34 @@ export default function PlayerScreen() {
       .finally(() => {
         if (active) setCommentsLoading(false);
       });
-    return () => { active = false; };
+    return () => {
+      active = false;
+      if (commentsGeneration.current === requestGeneration) ++commentsGeneration.current;
+    };
   }, [videoId, commentsRetryKey]);
+
+  const loadMoreComments = async () => {
+    if (!videoId || !commentsNextPage || commentsPagePending.current) return;
+    const generation = commentsGeneration.current;
+    commentsPagePending.current = true;
+    setCommentsLoadingMore(true);
+    setCommentsPageError(null);
+    try {
+      const result = await fetchYouTubeComments(videoId, commentsNextPage);
+      if (generation !== commentsGeneration.current) return;
+      setComments(previous => [...new Map<string, LiveComment>([...previous, ...result.items].map(item => [item.id, item])).values()]);
+      setCommentsNextPage(result.nextPage ?? null);
+    } catch (error) {
+      if (generation === commentsGeneration.current) {
+        setCommentsPageError(error instanceof Error ? error.message : 'More comments could not be loaded.');
+      }
+    } finally {
+      if (generation === commentsGeneration.current) {
+        commentsPagePending.current = false;
+        setCommentsLoadingMore(false);
+      }
+    }
+  };
 
   useEffect(() => {
     const statusSubscription = nativePlayer.addListener('statusChange', event => {
@@ -393,6 +433,12 @@ export default function PlayerScreen() {
   const triggerDownload = async (targetFormat: 'mp4' | 'audio') => {
     setDownloadPickerOpen(false);
     if (!videoId) return;
+    if (detailsLoading || !liveVideo) {
+      Alert.alert('Video is not ready to download', detailsLoading
+        ? 'Video information is still loading. Please try again when it finishes.'
+        : detailsError ?? 'Retry loading video details before choosing a download format.');
+      return;
+    }
 
     let candidate = null;
     if (targetFormat === 'audio') {
@@ -408,9 +454,9 @@ export default function PlayerScreen() {
 
     if (!candidate?.uri || candidate.contentType === 'hls') {
       Alert.alert(
-        'Format unavailable for direct download',
+        'Download source could not be resolved',
         targetFormat === 'mp4'
-          ? 'No standalone progressive MP4 stream was found for this video. You can download the Audio Only (M4A) format to listen offline.'
+          ? 'No compatible downloadable source was resolved for this format. Retry video details and try again.'
           : 'No downloadable audio stream was found for this video.',
       );
       return;
@@ -764,7 +810,7 @@ export default function PlayerScreen() {
               <Text style={ps.commentText}>Loading comments…</Text>
             </View>
           ) : comments.length === 0 ? (
-            <Text style={ps.commentText}>No comments were returned.</Text>
+            <Text style={ps.commentText}>{commentsDisabled ? 'Comments are turned off for this video.' : 'No comments were returned.'}</Text>
           ) : null}
           {comments.map(comment => (
             <View key={comment.id} style={ps.comment}>
@@ -785,6 +831,20 @@ export default function PlayerScreen() {
               </View>
             </View>
           ))}
+          {commentsPageError && <Text accessibilityRole="alert" style={ps.commentText}>{commentsPageError}</Text>}
+          {commentsNextPage && !commentsLoading && !commentsDisabled && (
+            <TouchableOpacity
+              onPress={loadMoreComments}
+              disabled={commentsLoadingMore}
+              accessibilityRole="button"
+              accessibilityLabel={commentsPageError ? 'Retry loading more comments' : 'Load more comments'}
+              style={ps.retryButton}
+            >
+              {commentsLoadingMore ? <ActivityIndicator color="#fff" /> : (
+                <Text style={ps.retryButtonText}>{commentsPageError ? 'Retry more comments' : 'Load more comments'}</Text>
+              )}
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Up Next */}
