@@ -2,7 +2,7 @@ const { createLoader, settle } = require('./load-typescript.cjs');
 
 // A small hook host drives the production provider's async initialization and
 // subsequent persistence effects. It does not render or simulate native UI.
-function providerFixture({ database = {}, failReads = false, databaseReadsFail = false, platform = 'android' } = {}) {
+function providerFixture({ database = {}, failReads = false, databaseReadsFail = false, storedValues = {}, platform = 'android' } = {}) {
   const state = [], dependencies = [], effects = [], writes = [], deleted = [];
   let cursor = 0, reads = 0;
   const hooks = {
@@ -33,7 +33,7 @@ function providerFixture({ database = {}, failReads = false, databaseReadsFail =
     'react/jsx-runtime': { jsx: (component, props) => ({ component, props }) },
     'react-native': { Platform: { OS: platform } },
     '@react-native-async-storage/async-storage': {
-      getItem: async () => { reads++; if (failReads) throw new Error('storage unavailable'); return null; },
+      getItem: async key => { reads++; if (failReads) throw new Error('storage unavailable'); return storedValues[key] ?? null; },
       setItem: async (key, value) => { writes.push([key, value]); },
     },
     '@/services/db': db,

@@ -79,34 +79,40 @@ const STORAGE_KEYS = {
   catalog: 'vyde_local_video_catalog_v1',
 } as const;
 
-function parseStored(value: string | null): unknown {
-  if (!value) return null;
-  try {
-    return JSON.parse(value);
-  } catch {
-    return null;
-  }
+// Missing keys are valid on first launch. Present but unreadable data must fail
+// hydration so persistence cannot replace the original value with empty state.
+function readStoredArray(value: string | null): unknown[] {
+  if (value === null) return [];
+  const parsed: unknown = JSON.parse(value);
+  if (!Array.isArray(parsed)) throw new Error('Stored collection must be an array.');
+  return parsed;
+}
+
+function validateStringIds(items: unknown[]): string[] {
+  return items.map(item => {
+    if (typeof item !== 'string' || !/^[\w-]{6,64}$/.test(item)) {
+      throw new Error('Stored video ID is invalid.');
+    }
+    return item;
+  });
 }
 
 function readStringIds(value: string | null): string[] {
-  const parsed = parseStored(value);
-  return Array.isArray(parsed)
-    ? parsed.filter((item): item is string => typeof item === 'string' && /^[\w-]{6,64}$/.test(item))
-    : [];
+  return validateStringIds(readStoredArray(value));
 }
 
 function readPlaylists(value: string | null): Playlist[] {
-  const parsed = parseStored(value);
-  if (!Array.isArray(parsed)) return [];
+  const parsed = readStoredArray(value);
   return parsed.flatMap((item): Playlist[] => {
-    if (!item || typeof item !== 'object') return [];
+    if (!item || typeof item !== 'object' || Array.isArray(item)) throw new Error('Stored record is invalid.');
     const playlist = item as Record<string, unknown>;
-    if (typeof playlist.id !== 'string' || typeof playlist.name !== 'string') return [];
+    if (typeof playlist.id !== 'string' || typeof playlist.name !== 'string') throw new Error('Stored playlist is invalid.');
+    if (playlist.videoIds !== undefined && !Array.isArray(playlist.videoIds)) throw new Error('Stored playlist members are invalid.');
     return [{
       id: playlist.id,
       name: playlist.name,
       videoIds: Array.isArray(playlist.videoIds)
-        ? playlist.videoIds.filter((id): id is string => typeof id === 'string' && /^[\w-]{6,64}$/.test(id))
+        ? validateStringIds(playlist.videoIds)
         : [],
       isPrivate: playlist.isPrivate !== false,
     }];
@@ -114,12 +120,11 @@ function readPlaylists(value: string | null): Playlist[] {
 }
 
 function readHistory(value: string | null): LocalHistoryItem[] {
-  const parsed = parseStored(value);
-  if (!Array.isArray(parsed)) return [];
+  const parsed = readStoredArray(value);
   return parsed.flatMap((item): LocalHistoryItem[] => {
-    if (!item || typeof item !== 'object') return [];
+    if (!item || typeof item !== 'object' || Array.isArray(item)) throw new Error('Stored record is invalid.');
     const video = item as Record<string, unknown>;
-    if (typeof video.videoId !== 'string' || typeof video.title !== 'string') return [];
+    if (typeof video.videoId !== 'string' || typeof video.title !== 'string') throw new Error('Stored history is invalid.');
     return [{
       videoId: video.videoId,
       title: video.title,
@@ -134,12 +139,11 @@ function readHistory(value: string | null): LocalHistoryItem[] {
 }
 
 function readDownloads(value: string | null): OfflineDownloadItem[] {
-  const parsed = parseStored(value);
-  if (!Array.isArray(parsed)) return [];
+  const parsed = readStoredArray(value);
   return parsed.flatMap((item): OfflineDownloadItem[] => {
-    if (!item || typeof item !== 'object') return [];
+    if (!item || typeof item !== 'object' || Array.isArray(item)) throw new Error('Stored record is invalid.');
     const dl = item as Record<string, unknown>;
-    if (typeof dl.videoId !== 'string' || typeof dl.title !== 'string') return [];
+    if (typeof dl.videoId !== 'string' || typeof dl.title !== 'string') throw new Error('Stored download is invalid.');
     return [{
       videoId: dl.videoId,
       title: dl.title,
@@ -157,13 +161,14 @@ function readDownloads(value: string | null): OfflineDownloadItem[] {
 }
 
 function readCatalog(value: string | null): Record<string, LocalVideoMetadata> {
-  const parsed = parseStored(value);
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+  if (value === null) return {};
+  const parsed: unknown = JSON.parse(value);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Stored catalog must be an object.');
   return Object.fromEntries(
     Object.entries(parsed as Record<string, unknown>).flatMap(([videoId, item]) => {
-      if (!/^[\w-]{6,64}$/.test(videoId) || !item || typeof item !== 'object') return [];
+      if (!/^[\w-]{6,64}$/.test(videoId) || !item || typeof item !== 'object' || Array.isArray(item)) throw new Error('Stored catalog record is invalid.');
       const metadata = item as Record<string, unknown>;
-      if (typeof metadata.title !== 'string') return [];
+      if (typeof metadata.title !== 'string') throw new Error('Stored metadata title is invalid.');
       return [[videoId, {
         title: metadata.title,
         channel: typeof metadata.channel === 'string' ? metadata.channel : '',

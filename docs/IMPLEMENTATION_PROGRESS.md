@@ -101,3 +101,15 @@ Broader phase 03 work remains: canonical metadata storage, entry/job identities,
 The follow-up read-error fix (`37aab5f`) now distinguishes native initialization/query failures from empty collections across history, likes, saves, playlists and subscriptions. Hydration keeps mirror writes disabled on those failures. The suite has 46 passing targeted tests. Mutation error/rollback handling and retry UX remain incomplete.
 
 The owner also requested release APKs and selected unsigned release output until signing is configured. CI now uses independent debug/release matrix jobs, explicitly overrides the generated template's debug signing for release, and records variant-aware provenance. See [CI artifact behavior](CI_ANDROID_ARTIFACTS.md). This workflow change still requires its first successful run; no signing credentials were created.
+
+## Batch 4 — Re-verified corruption containment
+
+Re-verification reproduced three additional failures before the fix: malformed downloads JSON, an array where the metadata catalog object was expected, and an object where web playlists were expected. Each was silently treated as empty state and enabled persistence. The regression tests failed against the previous implementation.
+
+Hydration now distinguishes an absent key from unreadable data. Present invalid JSON/collection roots and invalid required record identities/titles fail hydration; malformed playlist membership and saved/liked IDs also fail rather than being silently filtered. The existing persistence gate then leaves the original AsyncStorage values untouched. Missing keys and compatible optional-field defaults remain supported. This is a containment measure: it does not repair damaged data, implement recovery UI or establish full validation of every optional field.
+
+Local verification: **56 tests pass**, including ten additional hydration tests for corruption containment and valid-library preservation. `git diff --check` passes. These are production-module tests with mocked platform boundaries, not native runtime acceptance. No local build/export was performed.
+
+CI status checked while preparing this batch: run [44842072831](https://github.com/mugmarp/Vyde/actions/runs/44842072831), commit `e51241f`, has passed workspace verification, the advisory extractor benchmark and bundle/export checks; its Android debug build is still running. Run [44842641998](https://github.com/mugmarp/Vyde/actions/runs/44842641998), commit `001265c`, is pending behind it. The new debug/unsigned-release matrix has not yet produced a verified release artifact. Later pushes may replace pending runs under GitHub's concurrency behavior; running main builds are preserved.
+
+Current progress: phase 03 persistence foundations are in progress; the media-source boundary and engine evaluation are documented, and a prior debug APK compiled successfully in CI. Canonical metadata, durable download identities, mutation rollback, recovery/backup UX and the native media implementation remain open. S21 testing remains explicitly deferred; no device playback/download/offline result is claimed.
