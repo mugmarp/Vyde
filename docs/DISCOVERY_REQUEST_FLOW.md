@@ -38,3 +38,7 @@ They exclude queries, video IDs, visitor data, signed media URLs, cookies and re
 The earlier device had browse HTTP 400 and empty UI output while category searches sometimes returned videos. Those observations motivated these corrections; they do not establish that the replacement home route succeeds in production. Measure cold loads, repeated category switches/cache hits, retry after a failure, cancellation during a switch and a deliberately slow/offline connection on the new CI APK.
 
 The 20-second budget applies to discovery, not the complete multi-client player/cipher/related-metadata sequence. Full player cancellation/budgeting, current session/challenge integration, broader search/schema coverage and native media acceptance remain open.
+
+## Later audit qualification
+
+The critical re-audit at source `063bbdb` reproduced a late synchronous-work case: the cache write occurs before the lifetime helper performs its final elapsed-deadline check. The caller receives RequestTimeoutError, but the result can already be cached. Explicit asynchronous cancellation tests pass; the broader late-result guarantee needs the C12 fix in [the critical audit](CRITICAL_FUNCTIONALITY_REAUDIT_2026-11-21.md). Move cache side effects after successful lifetime validation rather than treating all late-result handling as complete.
