@@ -48,7 +48,7 @@ export const CLIENT_CONFIGS: Record<string, InnerTubeClientConfig> = {
     userAgent: 'com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12)',
   },
   TV_EMBEDDED: {
-    clientName: 'TV_EMBEDDED',
+    clientName: 'TVHTML5_SIMPLY_EMBEDDED_PLAYER',
     clientVersion: '2.0',
     userAgent: 'Mozilla/5.0 (SMART-TV; Linux; Tizen 5.0) AppleWebKit/538.1 (KHTML, like Gecko) Version/5.0 TV Safari/538.1',
   },
@@ -78,9 +78,9 @@ function getClientCode(name: string): string {
     case 'WEB': return '1';
     case 'ANDROID': return '3';
     case 'IOS': return '5';
-    case 'VISIONOS': return '5';
+    case 'VISIONOS': return '101';
     case 'ANDROID_VR': return '28';
-    case 'TV_EMBEDDED': return '85';
+    case 'TVHTML5_SIMPLY_EMBEDDED_PLAYER': return '85';
     default: return '3';
   }
 }
