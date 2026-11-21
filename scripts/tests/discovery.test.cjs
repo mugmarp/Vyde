@@ -31,3 +31,8 @@ test('the native home feed uses the home browse ID and preserves an earlier fail
  const api=createLoader({'react-native':{Platform:{OS:'android'}},'@/services/innertube':{extractBrowse:async(id)=>{calls.push(id);if(id==='FEwhat_to_watch')throw original;return [];}}})('api/youtube.ts');
  await assert.rejects(api.fetchLiveFeed(),e=>e===original);assert.deepEqual(calls,['FEwhat_to_watch','FEtrending']);
 });
+
+test('malformed required card text is rejected instead of reaching React as an object',async()=>{
+ const entry=video();entry.videoRenderer.title={simpleText:{unexpected:true}};
+ await assert.rejects(browse(grid([{richItemRenderer:{content:entry}}])).extractBrowse(),/format/);
+});

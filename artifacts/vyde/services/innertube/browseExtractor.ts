@@ -4,8 +4,11 @@ import { defaultInnerTube } from './innertubeClient';
 import type { RequestOptions } from './request';
 import { NormalizedVideoItem } from './types';
 
-const text = (value: any): string => value?.simpleText ?? value?.content
-  ?? value?.runs?.map((run: any) => run.text ?? '').join('') ?? '';
+const text = (value: any): string => {
+  const result = value?.simpleText ?? value?.content
+    ?? value?.runs?.map((run: any) => run.text ?? '').join('') ?? '';
+  return typeof result === 'string' ? result : '';
+};
 
 export function parseBrowseResponse(response: any): NormalizedVideoItem[] {
   const root = response?.contents;
