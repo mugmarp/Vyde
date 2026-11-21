@@ -146,23 +146,24 @@ async function discover(key: string, operation: 'feed' | 'search', options: Disc
   const startedAt = Date.now();
   let outcome = 'error';
   try {
-    return await runBoundedRequest(async signal => {
+    let cacheHit = false;
+    const result = await runBoundedRequest(async signal => {
       const cached = discoveryCache.get(key);
       if (!options.forceRefresh && cached && cached.expiresAt > Date.now()) {
-        outcome = 'cache';
+        cacheHit = true;
         return { ...cached.result, items: [...cached.result.items] };
       }
-      const result = await load({ ...options, signal });
-      if (signal.aborted) throw cancellationError();
-      // Empty responses and failures are not cached. Bound retained query data.
-      if (result.items.length) {
-        discoveryCache.delete(key);
-        if (discoveryCache.size >= 24) discoveryCache.delete(discoveryCache.keys().next().value!);
-        discoveryCache.set(key, { expiresAt: Date.now() + 60000, result: { ...result, items: [...result.items] } });
-      }
-      outcome = 'success';
-      return result;
+      return load({ ...options, signal });
     }, { ...options, timeoutMs: options.timeoutMs ?? 20000 });
+    // Commit cache effects only AFTER the lifetime helper validates success.
+    if (options.signal?.aborted) throw cancellationError();
+    if (!cacheHit && result.items.length) {
+      discoveryCache.delete(key);
+      if (discoveryCache.size >= 24) discoveryCache.delete(discoveryCache.keys().next().value!);
+      discoveryCache.set(key, { expiresAt: Date.now() + 60000, result: { ...result, items: [...result.items] } });
+    }
+    outcome = cacheHit ? 'cache' : 'success';
+    return result;
   } catch (error) {
     outcome = error instanceof Error ? error.name : 'error';
     throw error;

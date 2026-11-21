@@ -35,3 +35,13 @@ test('a feed region reaches extraction and gets a distinct cache entry',async()=
  await api.fetchLiveFeed('ug');await api.fetchLiveFeed('US');assert.deepEqual(regions,['UG','US']);
 });
 
+
+test('work rejected by the final deadline check cannot populate the discovery cache',async()=>{
+ let calls=0;
+ const api=apiFixture({extractSearch:async()=>{
+  calls++; if(calls===1){const until=Date.now()+20;while(Date.now()<until){}}
+  return [{id:'abcdefghijk'}];
+ }});
+ await assert.rejects(api.searchYouTube('late-result',{timeoutMs:5}),e=>e.name==='RequestTimeoutError');
+ await api.searchYouTube('late-result');assert.equal(calls,2);
+});
