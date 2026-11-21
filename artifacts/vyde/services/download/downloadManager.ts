@@ -111,6 +111,10 @@ export async function fileSize(fileName: string): Promise<number | null> {
  */
 export async function start(options: DownloadStartOptions): Promise<DownloadTask> {
   const { videoId, uri, fileName, onProgress, onComplete, onError } = options;
+  if (new URL(uri).protocol !== 'https:') throw new Error('A secure media source is required.');
+  if (options.expectedBytes !== undefined && (!Number.isSafeInteger(options.expectedBytes) || options.expectedBytes <= 0)) {
+    throw new Error('Expected download size is invalid.');
+  }
   const destUri = localUri(fileName);
   const partialUri = `${destUri}.part`;
   if (activeDownloads.has(fileName)) {
@@ -144,7 +148,19 @@ export async function start(options: DownloadStartOptions): Promise<DownloadTask
       throw new Error('Downloaded media is empty or missing.');
     }
     const headerLength = Number(headers['content-length']);
-    const expected = entry.expectedBytes ?? (!entry.resumed && headerLength > 0 ? headerLength : undefined);
+    let expected = entry.expectedBytes ?? (!entry.resumed && headerLength > 0 ? headerLength : undefined);
+    if (result.status === 206) {
+      const match = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(headers['content-range'] ?? '');
+      if (!match) throw new Error('Partial response is missing a valid content range.');
+      const [start, end, total] = match.slice(1).map(Number);
+      if (![start, end, total].every(Number.isSafeInteger) || start < 0 || end < start
+          || total <= end || end !== total - 1 || (!entry.resumed && start !== 0)
+          || (headerLength > 0 && headerLength !== end - start + 1)
+          || (entry.expectedBytes !== undefined && entry.expectedBytes !== total)) {
+        throw new Error('The media response does not describe a complete consistent entity.');
+      }
+      expected = total;
+    }
     if (expected !== undefined && Number.isFinite(expected) && expected > 0 && info.size !== expected) {
       throw new Error(`Download is incomplete (${info.size} of ${expected} bytes).`);
     }
@@ -266,11 +282,7 @@ async function cancelDownload(fileName: string): Promise<void> {
  */
 export async function deleteDownload(fileName: string): Promise<void> {
   await cancelDownload(fileName);
-  try {
-    await FileSystem.deleteAsync(localUri(fileName), { idempotent: true });
-  } catch (err) {
-    console.warn('[DownloadManager] deleteDownload failed:', err);
-  }
+  await FileSystem.deleteAsync(localUri(fileName), { idempotent: true });
 }
 
 /**

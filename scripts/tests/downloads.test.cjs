@@ -77,7 +77,7 @@ test('session pause/resume retains ownership and completes only once', async () 
   await task.pause();
   assert.equal(f.errors.length, 0);
   const resumed = task.resume();
-  f.transfers[0].complete(206, 20, {}, true);
+  f.transfers[0].complete(206, 20, { 'Content-Range': 'bytes 10-19/20', 'Content-Length': '10' }, true);
   await resumed;
   assert.equal(f.completions.length, 1);
   await task.resume();
@@ -146,4 +146,28 @@ test('resolver request headers reach the transfer and override defaults', async 
   await f.start({ headers: { Referer: 'https://example.com/watch', 'X-Fixture': 'source-context' } });
   assert.equal(f.transfers[0].headers.Referer, 'https://example.com/watch');
   assert.equal(f.transfers[0].headers['X-Fixture'], 'source-context');
+});
+
+test('a partial 206 response cannot be published using only its response length', async () => {
+  const f = downloadFixture(); await f.start();
+  f.transfers[0].complete(206, 20, { 'Content-Length': '20', 'Content-Range': 'bytes 0-19/100' });
+  await settle(); assert.equal(f.completions.length, 0); assert.equal(f.errors.length, 1);
+});
+
+test('a complete fresh 206 response validates the full entity range', async () => {
+  const f = downloadFixture(); await f.start();
+  f.transfers[0].complete(206, 20, { 'Content-Length': '20', 'Content-Range': 'bytes 0-19/20' });
+  await settle(); assert.equal(f.completions.length, 1);
+});
+
+test('a 206 response missing range metadata fails rather than guessing completeness', async () => {
+  const f = downloadFixture(); await f.start(); f.transfers[0].complete(206, 20);
+  await settle(); assert.equal(f.completions.length, 0); assert.equal(f.errors.length, 1);
+});
+
+test('file deletion failures reach the caller and leave the existing file intact', async () => {
+  const f = downloadFixture(); f.files.set(f.manager.localUri('fixture.mp4'), 20);
+  f.native.deleteAsync = async () => { throw new Error('disk failure'); };
+  await assert.rejects(f.manager.deleteDownload('fixture.mp4'), /disk failure/);
+  assert.equal(f.files.size, 1);
 });
