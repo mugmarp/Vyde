@@ -49,6 +49,8 @@ export interface NormalizedComment {
 }
 
 export interface NormalizedCommentsResponse {
+  nextPage?: string | null;
+  disabled?: boolean;
   commentCount: number | null;
   items: NormalizedComment[];
 }
