@@ -52,7 +52,7 @@ jobs:
         run: pnpm --filter @workspace/api-server run build
 
   benchmark:
-    name: InnerTube Extractor Benchmark
+    name: Advisory candidate probe (not native acceptance)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -63,9 +63,23 @@ jobs:
         with:
           node-version: 22
 
-      - name: Run 15-Video Extractor Benchmark
+      - name: Run Advisory 15-Video Candidate Probe
+        id: candidate_probe
         run: node scripts/benchmark_phase1.mjs
         continue-on-error: true
+
+      - name: Record Advisory Probe Outcome
+        if: always()
+        env:
+          PROBE_OUTCOME: ${{ steps.candidate_probe.outcome }}
+        run: |
+          python3 - <<'PY'
+          import os, pathlib
+          summary = pathlib.Path(os.environ['GITHUB_STEP_SUMMARY'])
+          with summary.open('a') as stream:
+              stream.write('Advisory candidate probe: ' + os.environ['PROBE_OUTCOME'] + '\n\n')
+              stream.write('This probe is not native playback acceptance. Required device/media gates remain separate.\n')
+          PY
 
   build-mobile-preview:
     name: Build Mobile Web & Bundle Check

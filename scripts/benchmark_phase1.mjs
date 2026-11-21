@@ -12,9 +12,10 @@
  * Measures:
  *   - Playability status (OK vs UNPLAYABLE)
  *   - Native stream candidates resolved (HLS, Progressive MP4, Adaptive Video, Audio)
- *   - In-app playback feasibility
+ *   - Standalone candidate availability (not native playback acceptance)
  *
- * Target: >= 70% in-app playback pass rate.
+ * Advisory target: >= 70% standalone candidate availability.
+ * Native decoding, sound, seek and downloads are not measured by this script.
  */
 
 const BENCHMARK_VIDEOS = [
@@ -69,7 +70,7 @@ const CLIENT_CONFIGS = {
     osName: 'visionOS',
     osVersion: '1.0',
     userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
-    code: '5',
+    code: '101',
   },
   ANDROID_VR: {
     clientName: 'ANDROID_VR',
@@ -211,7 +212,7 @@ async function extractVideoWithCascade(videoId, visitorData) {
 
 async function runBenchmark() {
   console.log('='.repeat(80));
-  console.log('VYDE PHASE 1 PLAYBACK EXTRACTION BENCHMARK (InnerTube 2026 Engine)');
+  console.log('VYDE ADVISORY CANDIDATE AVAILABILITY PROBE');
   console.log('='.repeat(80));
 
   const results = [];
@@ -228,9 +229,9 @@ async function runBenchmark() {
     const hasHls = result.candidates.some(c => c.type === 'hls');
     const hasProgressive = result.candidates.some(c => c.type === 'progressive');
     const hasAdaptive = result.candidates.some(c => c.type === 'adaptive-video');
-    const playable = result.success && (hasHls || hasProgressive || hasAdaptive);
+    const candidateAvailable = result.success && (hasHls || hasProgressive);
 
-    if (playable) passedCount++;
+    if (candidateAvailable) passedCount++;
 
     const summary = {
       id: item.id,
@@ -242,12 +243,12 @@ async function runBenchmark() {
       hasHls,
       hasProgressive,
       hasAdaptive,
-      playable,
+      candidateAvailable,
       elapsedMs: elapsed,
     };
     results.push(summary);
 
-    if (playable) {
+    if (candidateAvailable) {
       console.log(`PASS (${result.client}, ${result.candidates.length} streams, HLS: ${hasHls}, Prog: ${hasProgressive}, ${elapsed}ms)`);
     } else {
       console.log(`FAIL (Status: ${result.status}, Client: ${result.client})`);
@@ -256,11 +257,13 @@ async function runBenchmark() {
 
   const passRate = (passedCount / BENCHMARK_VIDEOS.length) * 100;
   console.log('\n' + '='.repeat(80));
-  console.log(`BENCHMARK RESULTS: ${passedCount}/${BENCHMARK_VIDEOS.length} passed (${passRate.toFixed(1)}%)`);
-  console.log(`Target DoD: >= 70.0%`);
+  console.log(`CANDIDATE AVAILABILITY: ${passedCount}/${BENCHMARK_VIDEOS.length} passed (${passRate.toFixed(1)}%)`);
+  console.log(`Advisory candidate target: >= 70.0%`);
   console.log(`Status: ${passRate >= 70 ? 'CRITERIA MET (SUCCESS)' : 'CRITERIA NOT MET'}`);
   console.log('='.repeat(80));
 
+  console.log('Native playback acceptance: NOT MEASURED (no decoder, first-frame or audio test).');
+  if (passRate < 70) process.exitCode = 1;
   return { passRate, results };
 }
 
