@@ -15,6 +15,8 @@
  */
 
 import { Platform } from 'react-native';
+import { runBoundedRequest, cancellationError } from '@/services/innertube/request';
+import type { RequestOptions } from '@/services/innertube/request';
 import type { PlaybackSource } from '@/domain/media';
 import {
   extractBrowse,
@@ -105,12 +107,12 @@ function getApiBase(): string | null {
  * Makes a GET request to the Express proxy server.
  * Throws if the proxy is not configured or returns a non-OK status.
  */
-async function apiProxyGet<T>(path: string): Promise<T> {
+async function apiProxyGet<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const base = getApiBase();
   if (!base) {
     throw new Error('API server proxy is not configured.');
   }
-  const response = await fetch(`${base}${path}`);
+  const response = await fetch(`${base}${path}`, { signal: options.signal });
   const body = (await response.json()) as T & { message?: string };
   if (!response.ok) {
     throw new Error(body.message ?? 'Proxy request failed.');
@@ -120,70 +122,98 @@ async function apiProxyGet<T>(path: string): Promise<T> {
 
 // Native direct extraction is sufficient configuration. An absent or failing
 // optional proxy must never replace the original provider failure.
-async function withOptionalProxy<T>(direct: () => Promise<T>, path: string): Promise<T> {
+async function withOptionalProxy<T>(direct: () => Promise<T>, path: string, options: RequestOptions = {}): Promise<T> {
   try {
     return await direct();
   } catch (originalError) {
-    if (!getApiBase()) throw originalError;
+    if (options.signal?.aborted || !getApiBase()) throw originalError;
     try {
-      return await apiProxyGet<T>(path);
+      return await apiProxyGet<T>(path, options);
     } catch {
       throw originalError;
     }
   }
 }
 
+export interface DiscoveryOptions extends RequestOptions {
+  forceRefresh?: boolean;
+}
+type DiscoveryResult = { items: LiveVideo[]; provider: string };
+const discoveryCache = new Map<string, { expiresAt: number; result: DiscoveryResult }>();
+
+async function discover(key: string, operation: 'feed' | 'search', options: DiscoveryOptions,
+  load: (request: RequestOptions) => Promise<DiscoveryResult>): Promise<DiscoveryResult> {
+  const startedAt = Date.now();
+  let outcome = 'error';
+  try {
+    return await runBoundedRequest(async signal => {
+      const cached = discoveryCache.get(key);
+      if (!options.forceRefresh && cached && cached.expiresAt > Date.now()) {
+        outcome = 'cache';
+        return { ...cached.result, items: [...cached.result.items] };
+      }
+      const result = await load({ ...options, signal });
+      if (signal.aborted) throw cancellationError();
+      // Empty responses and failures are not cached. Bound retained query data.
+      if (result.items.length) {
+        discoveryCache.delete(key);
+        if (discoveryCache.size >= 24) discoveryCache.delete(discoveryCache.keys().next().value!);
+        discoveryCache.set(key, { expiresAt: Date.now() + 60000, result: { ...result, items: [...result.items] } });
+      }
+      outcome = 'success';
+      return result;
+    }, { ...options, timeoutMs: options.timeoutMs ?? 20000 });
+  } catch (error) {
+    outcome = error instanceof Error ? error.name : 'error';
+    throw error;
+  } finally {
+    console.log('[Discovery] request', { operation, elapsedMs: Date.now() - startedAt, outcome });
+  }
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
-/**
- * Fetches the trending / home feed.
- *
- * Strategy:
- *   1. Direct InnerTube /browse?browseId=FEtrending (IOS client first)
- *   2. Proxy fallback → /api/youtube/feed
- *   3. Final fallback: /browse?browseId=FEwhat_to_watch
- *
- * @param region - ISO 3166-1 alpha-2 country code (default 'US')
- */
-export async function fetchLiveFeed(region = 'US'): Promise<{ items: LiveVideo[]; provider: string }> {
-  try {
-    const items = await extractBrowse('FEtrending');
-    if (items && items.length > 0) {
-      return { items, provider: 'innertube-direct' };
+/** Home browse first, then a legacy trending attempt, within one total budget. */
+export async function fetchLiveFeed(region = 'US', options: DiscoveryOptions = {}): Promise<DiscoveryResult> {
+  const country = region.toUpperCase();
+  if (!/^[A-Z]{2}$/.test(country)) throw new Error('A two-letter content region is required.');
+  return discover(`feed:${country}`, 'feed', options, request => withOptionalProxy(async () => {
+    let firstError: unknown;
+    let failed = false;
+    for (const browseId of ['FEwhat_to_watch', 'FEtrending']) {
+      try {
+        const items = await extractBrowse(browseId, undefined, { ...request, region: country });
+        if (items.length) return { items, provider: 'innertube-direct' };
+      } catch (error) {
+        if (request.signal?.aborted) throw error;
+        if (!failed) firstError = error;
+        failed = true;
+      }
     }
-  } catch (err) {
-    console.warn('[YouTube API] Direct InnerTube feed failed, attempting fallback...', err);
-  }
-
-  try {
-    return await apiProxyGet<{ items: LiveVideo[]; provider: string }>(
-      `/feed?region=${encodeURIComponent(region)}`,
-    );
-  } catch {
-    // Both primary and proxy failed — try alternate browse token
-    const items = await extractBrowse('FEwhat_to_watch');
-    return { items, provider: 'innertube-direct' };
-  }
+    // An empty fallback must not erase an earlier request/schema failure.
+    if (failed) throw firstError;
+    return { items: [], provider: 'innertube-direct' };
+  }, `/feed?region=${encodeURIComponent(country)}`, request));
 }
 
 /**
  * Searches YouTube for videos matching the given query.
  *
  * Strategy:
- *   1. Direct InnerTube /search (IOS client)
+ *   1. Direct InnerTube /search (ANDROID client)
  *   2. Proxy fallback → /api/youtube/search
  *
  * @param query - Search string (must be ≥ 2 characters)
  */
-export async function searchYouTube(query: string): Promise<{ items: LiveVideo[]; provider: string }> {
+export async function searchYouTube(query: string, options: DiscoveryOptions = {}): Promise<DiscoveryResult> {
   const normalized = query.trim();
   if (normalized.length < 2) {
     throw new Error('Search must be at least 2 characters.');
   }
 
-  return withOptionalProxy(async () => ({
-    items: await extractSearch(normalized), provider: 'innertube-direct',
-  }), `/search?q=${encodeURIComponent(normalized)}`);
+  return discover(`search:${options.region ?? 'US'}:${normalized}`, 'search', options, request => withOptionalProxy(async () => ({
+    items: await extractSearch(normalized, request), provider: 'innertube-direct',
+  }), `/search?q=${encodeURIComponent(normalized)}`, request));
 }
 
 /**

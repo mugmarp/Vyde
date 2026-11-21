@@ -33,15 +33,17 @@ export default function ExploreScreen() {
 
   useEffect(() => {
     let active = true;
+    const controller = new AbortController();
+    setTrendingLoading(true);
     setTrendingError(null);
-    fetchLiveFeed().then(response => {
+    fetchLiveFeed('US', { signal: controller.signal }).then(response => {
       if (active) setTrendingVideos(response.items);
     }).catch(err => {
-      if (active) setTrendingError(err instanceof Error ? err.message : 'Could not load trending videos.');
+      if (active) setTrendingError(err instanceof Error ? err.message : 'Could not load recommendations.');
     }).finally(() => {
       if (active) setTrendingLoading(false);
     });
-    return () => { active = false; };
+    return () => { active = false; controller.abort(); };
   }, [trendingRetryKey]);
 
   useEffect(() => {
@@ -54,12 +56,13 @@ export default function ExploreScreen() {
       return;
     }
     let active = true;
+    const controller = new AbortController();
     setLoading(true);
     setError(null);
     setResults([]);
     const timer = setTimeout(async () => {
       try {
-        const response = await searchYouTube(normalizedQuery);
+        const response = await searchYouTube(normalizedQuery, { signal: controller.signal });
         if (active) {
           setResults(response.items);
           setResultsQuery(normalizedQuery);
@@ -73,6 +76,7 @@ export default function ExploreScreen() {
     return () => {
       active = false;
       clearTimeout(timer);
+      controller.abort();
     };
   }, [query, searchRetryKey]);
 
@@ -156,8 +160,8 @@ export default function ExploreScreen() {
                 </TouchableOpacity>
               ))}
             </ScrollView>
-            <Text style={s.sectionLabel}>Popular right now</Text>
-            {trendingLoading && <View style={s.searchState}><ActivityIndicator color={C.accent} /><Text style={s.emptyText}>Loading live videos…</Text></View>}
+            <Text style={s.sectionLabel}>Discover videos</Text>
+            {trendingLoading && <View style={s.searchState}><ActivityIndicator color={C.accent} /><Text style={s.emptyText}>Loading recommendations…</Text></View>}
             {!trendingLoading && trendingError && (
               <View style={s.searchState}>
                 <Ionicons name="cloud-offline-outline" size={32} color={C.dim} />
@@ -175,7 +179,7 @@ export default function ExploreScreen() {
               </View>
             )}
             {!trendingLoading && !trendingError && trendingVideos.length === 0 && (
-              <View style={s.emptyWrap}><Text style={s.emptyText}>No trending videos were returned.</Text></View>
+              <View style={s.emptyWrap}><Text style={s.emptyText}>No recommendations were returned.</Text></View>
             )}
             {!trendingLoading && !trendingError && trendingVideos.map(video => (
               <VideoCard key={video.id} video={video} />

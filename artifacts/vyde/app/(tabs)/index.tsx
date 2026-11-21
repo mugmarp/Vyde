@@ -78,9 +78,10 @@ export default function HomeScreen() {
 
   useEffect(() => {
     let active = true;
+    const controller = new AbortController();
     setLoading(true);
     setError(null);
-    const request = selectedCat === 'All' ? fetchLiveFeed() : searchYouTube(selectedCat);
+    const request = selectedCat === 'All' ? fetchLiveFeed('US', { signal: controller.signal }) : searchYouTube(selectedCat, { signal: controller.signal });
     request.then(result => {
       if (active) setLiveVideos(result.items);
     }).catch(err => {
@@ -88,7 +89,7 @@ export default function HomeScreen() {
     }).finally(() => {
       if (active) setLoading(false);
     });
-    return () => { active = false; };
+    return () => { active = false; controller.abort(); };
   }, [selectedCat, retryKey]);
 
   const topPad = Platform.OS === 'web' ? 67 : insets.top;

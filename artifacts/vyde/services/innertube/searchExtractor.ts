@@ -3,6 +3,7 @@
  * Searches videos directly via InnerTube /search.
  */
 
+import type { RequestOptions } from './request';
 import { CLIENT_CONFIGS } from './constants';
 import { defaultInnerTube } from './innertubeClient';
 import { NormalizedVideoItem } from './types';
@@ -11,7 +12,7 @@ function youtubeThumbnail(id: string): string {
   return `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
 }
 
-export async function extractSearch(query: string): Promise<NormalizedVideoItem[]> {
+export async function extractSearch(query: string, options: RequestOptions = {}): Promise<NormalizedVideoItem[]> {
   const normalized = query.trim();
   if (normalized.length < 2) return [];
 
@@ -19,6 +20,7 @@ export async function extractSearch(query: string): Promise<NormalizedVideoItem[
     'search',
     { query: normalized },
     CLIENT_CONFIGS.ANDROID,
+    options,
   );
 
   const items: NormalizedVideoItem[] = [];
