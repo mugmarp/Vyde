@@ -5,7 +5,7 @@ def signer_certificates(output):
     # apksigner prints numbered signers or SDK-range signers. See AOSP's
     # check_target_files_signatures.py for both documented output forms.
     return sorted(set(re.findall(
-        r'^Signer (?:#\d+|\([^\r\n)]+\)) certificate SHA-256 digest:\s*([0-9a-fA-F]{64})\s*$',
+        r'^(?:Signer (?:#\d+|\([^\r\n)]+\))|V[1-4](?:\.\d+)? Signer:) certificate SHA-256 digest:\s*([0-9a-fA-F]{64})\s*$',
         output, re.MULTILINE,
     )))
 

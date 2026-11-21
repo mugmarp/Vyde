@@ -68,6 +68,14 @@ class ProvenanceTests(unittest.TestCase):
         result = self.verify(signing=f'Signer (minSdkVersion=24, maxSdkVersion=32) certificate SHA-256 digest: {DIGEST}\n')
         self.assertEqual(result['artifacts'][0]['signerCertificateSha256'], [DIGEST])
 
+    def test_actual_ci_v2_signer_output(self):
+        output = ('V2 Signer: certificate DN: CN=Android Debug, OU=Android\n'
+                  'V2 Signer: certificate SHA-256 digest: fac61745dc0903786fb9ede62a962b399f7348f0bb6f899b8332667591033b9c\n'
+                  'V2 Signer: certificate SHA-1 digest: 5e8f16062ea3cd2c4a0d547876baa6f38cabf625\n')
+        result = self.verify(signing=output)
+        self.assertEqual(result['artifacts'][0]['signerCertificateSha256'],
+                         ['fac61745dc0903786fb9ede62a962b399f7348f0bb6f899b8332667591033b9c'])
+
     def test_unsigned_release(self):
         result = self.verify(variant='release', signing='', signature_result=1)['artifacts'][0]
         self.assertEqual(result['signing'], 'unsigned')
