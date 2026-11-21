@@ -2,7 +2,7 @@ const { createLoader, settle } = require('./load-typescript.cjs');
 
 // A small hook host drives the production provider's async initialization and
 // subsequent persistence effects. It does not render or simulate native UI.
-function providerFixture({ database = {}, failReads = false, databaseReadsFail = false, storedValues = {}, platform = 'android', writeOperation = async () => {}, storageWriteOperation = async () => {}, databaseValues = {} } = {}) {
+function providerFixture({ database = {}, failReads = false, databaseReadsFail = false, storedValues = {}, platform = 'android', writeOperation = async () => {}, storageWriteOperation = async () => {}, databaseValues = {}, deleteOperation = async () => {} } = {}) {
   const state = [], dependencies = [], effects = [], writes = [], deleted = [], mutations = [];
   let cursor = 0, reads = 0;
   const hooks = {
@@ -48,7 +48,7 @@ function providerFixture({ database = {}, failReads = false, databaseReadsFail =
     '@/services/auth': { getSavedGoogleUser: async () => null },
     '@/services/download/downloadManager': {
       suggestFileName: (id, type) => `${id}.${type === 'audio' ? 'm4a' : 'mp4'}`,
-      deleteDownload: async fileName => { deleted.push(fileName); },
+      deleteDownload: async fileName => { deleted.push(fileName); await deleteOperation(fileName); },
     },
   })('context/AppContext.tsx');
   async function render() {

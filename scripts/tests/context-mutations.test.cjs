@@ -109,3 +109,16 @@ for (const method of ['toggleSave', 'createPlaylist']) {
     assert.equal(f.mutations.length, 0);
   });
 }
+
+test('an old catalog write cannot resurrect data after a newer reset snapshot', async () => {
+  const oldWrite = deferred(); let held = false;
+  const storedValues = { vyde_local_video_catalog_v1: JSON.stringify({ abcdef: { title: 'Old', channel: '', thumbnail: '' } }) };
+  const f = providerFixture({ storedValues, storageWriteOperation: async (key, value) => {
+    if (key === 'vyde_local_video_catalog_v1' && !held) { held = true; await oldWrite.promise; }
+    storedValues[key] = value;
+  } });
+  await f.render(); const c = await f.render(); c.clearLocalData();
+  await settle(); await f.render(); oldWrite.resolve();
+  await settle(); await f.render(); await settle();
+  assert.deepEqual(JSON.parse(storedValues.vyde_local_video_catalog_v1), {});
+});

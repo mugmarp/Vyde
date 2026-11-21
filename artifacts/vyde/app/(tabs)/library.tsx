@@ -298,9 +298,9 @@ export default function LibraryScreen() {
                           {
                             text: 'Delete all',
                             style: 'destructive',
-                            onPress: () => {
-                              downloads.forEach(d => removeDownload(d.videoId));
-                              setStorageUsedMB(0);
+                            onPress: async () => {
+                              await Promise.all(downloads.map(d => removeDownload(d.videoId)));
+                              setStorageUsedMB(await DownloadManager.totalStorageMB());
                             },
                           },
                           { text: 'Cancel', style: 'cancel' },

@@ -4,6 +4,7 @@ import { Platform } from 'react-native';
 import * as DownloadManager from '@/services/download/downloadManager';
 import * as Db from '@/services/db';
 import * as GoogleAuth from '@/services/auth';
+import { createOrderedWriter } from '@/services/storage/orderedWriter';
 
 export interface Playlist {
   id: string;
@@ -58,7 +59,7 @@ interface AppContextType {
   removeVideoFromPlaylist: (playlistId: string, videoId: string) => void;
   deletePlaylist: (playlistId: string) => void;
   addDownload: (item: Omit<OfflineDownloadItem, 'downloadedAt'>) => void;
-  removeDownload: (videoId: string) => void;
+  removeDownload: (videoId: string) => Promise<boolean>;
   updateDownloadProgress: (videoId: string, progress: number, status?: OfflineDownloadItem['status']) => void;
   subscriptions: Db.DbSubscription[];
   isSubscribed: (channelId: string) => boolean;
@@ -205,6 +206,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [hydrated, setHydrated] = useState(false);
   const [persistenceReady, setPersistenceReady] = useState(false);
   const [storageError, setStorageError] = useState<string | null>(null);
+  const storageWriterRef = useRef<ReturnType<typeof createOrderedWriter> | null>(null);
+  if (!storageWriterRef.current) {
+    storageWriterRef.current = createOrderedWriter((key, value) => AsyncStorage.setItem(key, value));
+  }
+  const storageWriter = storageWriterRef.current;
 
   useEffect(() => {
     async function hydrate() {
@@ -265,9 +271,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const persist = useCallback((key: string, value: unknown) => {
-    void AsyncStorage.setItem(key, JSON.stringify(value))
+    void storageWriter.write(key, JSON.stringify(value))
       .catch(() => setStorageError('Local data could not be saved on this device.'));
-  }, []);
+  }, [storageWriter]);
 
   useEffect(() => { if (persistenceReady) persist(STORAGE_KEYS.playlists, playlists); }, [playlists, persistenceReady, persist]);
   useEffect(() => { if (persistenceReady) persist(STORAGE_KEYS.liked, likedVideoIds); }, [likedVideoIds, persistenceReady, persist]);
@@ -296,9 +302,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [persistenceReady]);
 
   const writeCollection = useCallback(async (key: string, value: unknown, nativeWrite: () => Promise<void>) => {
-    if (Platform.OS === 'web') await AsyncStorage.setItem(key, JSON.stringify(value));
+    if (Platform.OS === 'web') await storageWriter.write(key, JSON.stringify(value));
     else await nativeWrite();
-  }, []);
+  }, [storageWriter]);
 
   const toggleLike = useCallback((videoId: string) => {
     void runMutation(async () => {
@@ -375,15 +381,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     ]);
   }, []);
 
-  const removeDownload = useCallback((videoId: string) => {
+  const removeDownload = useCallback(async (videoId: string): Promise<boolean> => {
     const item = downloads.find(d => d.videoId === videoId);
-    if (item) {
-      // Invalidate active callbacks even when there is no completed URI yet.
-      const fileName = DownloadManager.suggestFileName(videoId, item.format === 'audio' ? 'audio' : 'mp4');
-      void DownloadManager.deleteDownload(fileName)
-        .catch(() => setStorageError('The download could not be removed from this device.'));
+    if (!item) return true;
+    const fileName = DownloadManager.suggestFileName(videoId, item.format === 'audio' ? 'audio' : 'mp4');
+    try {
+      await DownloadManager.deleteDownload(fileName);
+    } catch {
+      setStorageError('The download could not be removed from this device. Please retry.');
+      return false;
     }
-    setDownloads(prev => prev.filter(d => d.videoId !== videoId));
+    setDownloads(previous => previous.filter(d => d.videoId !== videoId));
+    return true;
   }, [downloads]);
 
   const updateDownloadProgress = useCallback((videoId: string, progress: number, status?: OfflineDownloadItem['status']) => {
@@ -427,16 +436,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     void runMutation(async () => {
       // Do not delete files or clear UI state when the database reset fails.
       await Db.resetAllLocalData();
+      const retainedDownloads: OfflineDownloadItem[] = [];
       for (const item of downloads) {
         const fileName = DownloadManager.suggestFileName(item.videoId, item.format === 'audio' ? 'audio' : 'mp4');
-        await DownloadManager.deleteDownload(fileName)
-          .catch(() => setStorageError('Some downloaded files could not be removed.'));
+        try { await DownloadManager.deleteDownload(fileName); }
+        catch {
+          retainedDownloads.push(item);
+          setStorageError('The library was cleared, but some downloaded files could not be removed. Their records were retained for retry.');
+        }
       }
       setPlaylists([]);
       setLikedVideoIds([]);
       setSavedVideoIds([]);
       setHistory([]);
-      setDownloads([]);
+      setDownloads(retainedDownloads);
       setSubscriptions([]);
       setVideoCatalog({});
     });
