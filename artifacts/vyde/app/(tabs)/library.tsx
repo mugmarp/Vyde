@@ -103,7 +103,7 @@ export default function LibraryScreen() {
   const params = useLocalSearchParams<{ tab?: string }>();
   const requestedTab = Array.isArray(params.tab) ? params.tab[0] : params.tab;
   const {
-    playlists, likedVideoIds, savedVideoIds, history, downloads, videoCatalog, isHydrated,
+    playlists, likedVideoIds, savedVideoIds, history, downloads, videoCatalog, isHydrated, storageError,
     createPlaylist, addVideoToPlaylist, removeVideoFromPlaylist, deletePlaylist,
     removeDownload, toggleLike, toggleSave,
   } = useAppContext();
@@ -141,9 +141,12 @@ export default function LibraryScreen() {
     setCreateOpen(true);
   };
 
-  const submitPlaylist = () => {
-    const newId = createPlaylist(playlistName);
-    if (!newId) return;
+  const submitPlaylist = async () => {
+    const newId = await createPlaylist(playlistName);
+    if (!newId) {
+      if (playlistName.trim()) Alert.alert('Playlist not saved', 'Your playlist could not be saved on this device. Please try again.');
+      return;
+    }
     setPlaylistName('');
     setCreateOpen(false);
     setSelectedPlaylistId(newId);
@@ -239,6 +242,7 @@ export default function LibraryScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={s.content}
       >
+        {storageError && <Text accessibilityRole="alert" style={s.storageError}>{storageError}</Text>}
         {!isHydrated ? (
           <View style={s.loading}>
             <ActivityIndicator color={C.accent} />
@@ -575,6 +579,7 @@ const s = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border,
   },
   logo: { color: C.text, fontSize: 24, fontFamily: 'Outfit_700Bold', letterSpacing: -0.5 },
+  storageError: { color: C.accent, fontSize: 13, lineHeight: 19, marginBottom: 14 },
   headerTitle: { flex: 1, color: C.text, fontSize: 17, textAlign: 'center', fontFamily: 'Outfit_700Bold' },
   headerIcon: { minWidth: 36, alignItems: 'center', justifyContent: 'center', padding: 4 },
   tabRow: { paddingHorizontal: 14, paddingTop: 14, paddingBottom: 6, gap: 8 },

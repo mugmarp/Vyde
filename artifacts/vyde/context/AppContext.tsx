@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import * as DownloadManager from '@/services/download/downloadManager';
@@ -53,7 +53,7 @@ interface AppContextType {
   toggleLike: (videoId: string) => void;
   toggleSave: (videoId: string) => void;
   recordHistory: (videoId: string, video: LocalVideoMetadata, progress?: number) => void;
-  createPlaylist: (name: string) => string | null;
+  createPlaylist: (name: string) => Promise<string | null>;
   addVideoToPlaylist: (playlistId: string, videoId: string) => void;
   removeVideoFromPlaylist: (playlistId: string, videoId: string) => void;
   deletePlaylist: (playlistId: string) => void;
@@ -178,14 +178,29 @@ function readCatalog(value: string | null): Record<string, LocalVideoMetadata> {
   );
 }
 
+// Keep committed values available to queued actions before React's next render.
+// No database work runs inside a React state updater.
+function useCommittedState<T>(initial: T) {
+  const [value, setValue] = useState(initial);
+  const current = useRef(initial);
+  const setCommitted = useCallback((next: React.SetStateAction<T>) => {
+    const updated = typeof next === 'function'
+      ? (next as (previous: T) => T)(current.current)
+      : next;
+    current.current = updated;
+    setValue(updated);
+  }, []);
+  return [value, setCommitted, current] as const;
+}
+
 export function AppProvider({ children }: { children: React.ReactNode }) {
-  const [playlists, setPlaylists] = useState<Playlist[]>([]);
-  const [likedVideoIds, setLikedVideoIds] = useState<string[]>([]);
-  const [savedVideoIds, setSavedVideoIds] = useState<string[]>([]);
-  const [history, setHistory] = useState<LocalHistoryItem[]>([]);
+  const [playlists, setPlaylists, playlistsRef] = useCommittedState<Playlist[]>([]);
+  const [likedVideoIds, setLikedVideoIds, likesRef] = useCommittedState<string[]>([]);
+  const [savedVideoIds, setSavedVideoIds, savesRef] = useCommittedState<string[]>([]);
+  const [history, setHistory] = useCommittedState<LocalHistoryItem[]>([]);
   const [downloads, setDownloads] = useState<OfflineDownloadItem[]>([]);
   const [videoCatalog, setVideoCatalog] = useState<Record<string, LocalVideoMetadata>>({});
-  const [subscriptions, setSubscriptions] = useState<Db.DbSubscription[]>([]);
+  const [subscriptions, setSubscriptions, subscriptionsRef] = useCommittedState<Db.DbSubscription[]>([]);
   const [googleUser, setGoogleUser] = useState<GoogleAuth.GoogleAuthUser | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const [persistenceReady, setPersistenceReady] = useState(false);
@@ -261,71 +276,97 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => { if (persistenceReady) persist(STORAGE_KEYS.downloads, downloads); }, [downloads, persistenceReady, persist]);
   useEffect(() => { if (persistenceReady) persist(STORAGE_KEYS.catalog, videoCatalog); }, [videoCatalog, persistenceReady, persist]);
 
-  const toggleLike = useCallback((videoId: string) => {
-    setLikedVideoIds(prev => {
-      const willBeLiked = !prev.includes(videoId);
-      void Db.setVideoLiked(videoId, '', '', '', willBeLiked);
-      return willBeLiked ? [...prev, videoId] : prev.filter(id => id !== videoId);
+  const mutations = useRef<Promise<unknown>>(Promise.resolve());
+  const runMutation = useCallback((task: () => Promise<void>): Promise<boolean> => {
+    if (!persistenceReady) {
+      setStorageError('Local data must load successfully before changes can be saved.');
+      return Promise.resolve(false);
+    }
+    const result = mutations.current.then(async () => {
+      try {
+        await task();
+        return true;
+      } catch {
+        setStorageError('Local data could not be saved on this device. Your change was not applied.');
+        return false;
+      }
     });
+    mutations.current = result;
+    return result;
+  }, [persistenceReady]);
+
+  const writeCollection = useCallback(async (key: string, value: unknown, nativeWrite: () => Promise<void>) => {
+    if (Platform.OS === 'web') await AsyncStorage.setItem(key, JSON.stringify(value));
+    else await nativeWrite();
   }, []);
 
-  const toggleSave = useCallback((videoId: string) => {
-    setSavedVideoIds(prev => {
-      const willBeSaved = !prev.includes(videoId);
-      void Db.setVideoSaved(videoId, '', '', '', willBeSaved);
-      return willBeSaved ? [...prev, videoId] : prev.filter(id => id !== videoId);
+  const toggleLike = useCallback((videoId: string) => {
+    void runMutation(async () => {
+      const liked = !likesRef.current.includes(videoId);
+      const next = liked ? [...likesRef.current, videoId] : likesRef.current.filter(id => id !== videoId);
+      await writeCollection(STORAGE_KEYS.liked, next, () => Db.setVideoLiked(videoId, '', '', '', liked));
+      setLikedVideoIds(next);
     });
-  }, []);
+  }, [runMutation, writeCollection]);
+
+  const toggleSave = useCallback((videoId: string) => {
+    void runMutation(async () => {
+      const saved = !savesRef.current.includes(videoId);
+      const next = saved ? [...savesRef.current, videoId] : savesRef.current.filter(id => id !== videoId);
+      await writeCollection(STORAGE_KEYS.saved, next, () => Db.setVideoSaved(videoId, '', '', '', saved));
+      setSavedVideoIds(next);
+    });
+  }, [runMutation, writeCollection]);
 
   const recordHistory = useCallback((videoId: string, video: LocalVideoMetadata, progress = 0) => {
     const safeProgress = Number.isFinite(progress) ? Math.max(0, Math.min(1, progress)) : 0;
-    const now = Date.now();
-    const item: LocalHistoryItem = { videoId, ...video, progress: safeProgress, lastWatchedAt: now };
+    const item: LocalHistoryItem = { videoId, ...video, progress: safeProgress, lastWatchedAt: Date.now() };
+    void runMutation(async () => {
+      // The native repository is authoritative; catalog mirroring remains separate.
+      if (Platform.OS !== 'web') await Db.upsertHistory(item);
+      setVideoCatalog(previous => ({ ...previous, [videoId]: video }));
+      setHistory(previous => [item, ...previous.filter(i => i.videoId !== videoId)].slice(0, 100));
+    });
+  }, [runMutation]);
 
-    setVideoCatalog(previous => ({ ...previous, [videoId]: video }));
-    setHistory(prev => [
-      item,
-      ...prev.filter(i => i.videoId !== videoId),
-    ].slice(0, 100));
-
-    // Persist asynchronously to SQLite
-    void Db.upsertHistory(item);
-  }, []);
-
-  const createPlaylist = useCallback((name: string) => {
+  const createPlaylist = useCallback(async (name: string) => {
     const normalized = name.trim();
     if (!normalized) return null;
     const id = `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    void Db.createNewPlaylist(id, normalized, true);
-    setPlaylists(previous => [
-      { id, name: normalized, videoIds: [], isPrivate: true },
-      ...previous,
-    ]);
-    return id;
-  }, []);
+    const applied = await runMutation(async () => {
+      const next = [{ id, name: normalized, videoIds: [], isPrivate: true }, ...playlistsRef.current];
+      await writeCollection(STORAGE_KEYS.playlists, next, () => Db.createNewPlaylist(id, normalized, true));
+      setPlaylists(next);
+    });
+    return applied ? id : null;
+  }, [runMutation, writeCollection]);
 
   const addVideoToPlaylist = useCallback((playlistId: string, videoId: string) => {
-    void Db.addVideoToPlaylistDb(playlistId, videoId);
-    setPlaylists(previous => previous.map(playlist =>
-      playlist.id === playlistId && !playlist.videoIds.includes(videoId)
-        ? { ...playlist, videoIds: [...playlist.videoIds, videoId] }
-        : playlist
-    ));
-  }, []);
+    void runMutation(async () => {
+      const next = playlistsRef.current.map(playlist =>
+        playlist.id === playlistId && !playlist.videoIds.includes(videoId)
+          ? { ...playlist, videoIds: [...playlist.videoIds, videoId] } : playlist);
+      await writeCollection(STORAGE_KEYS.playlists, next, () => Db.addVideoToPlaylistDb(playlistId, videoId));
+      setPlaylists(next);
+    });
+  }, [runMutation, writeCollection]);
 
   const removeVideoFromPlaylist = useCallback((playlistId: string, videoId: string) => {
-    void Db.removeVideoFromPlaylistDb(playlistId, videoId);
-    setPlaylists(previous => previous.map(playlist =>
-      playlist.id === playlistId
-        ? { ...playlist, videoIds: playlist.videoIds.filter(id => id !== videoId) }
-        : playlist
-    ));
-  }, []);
+    void runMutation(async () => {
+      const next = playlistsRef.current.map(playlist => playlist.id === playlistId
+        ? { ...playlist, videoIds: playlist.videoIds.filter(id => id !== videoId) } : playlist);
+      await writeCollection(STORAGE_KEYS.playlists, next, () => Db.removeVideoFromPlaylistDb(playlistId, videoId));
+      setPlaylists(next);
+    });
+  }, [runMutation, writeCollection]);
 
   const deletePlaylist = useCallback((playlistId: string) => {
-    void Db.removePlaylist(playlistId);
-    setPlaylists(previous => previous.filter(playlist => playlist.id !== playlistId));
-  }, []);
+    void runMutation(async () => {
+      const next = playlistsRef.current.filter(playlist => playlist.id !== playlistId);
+      await writeCollection(STORAGE_KEYS.playlists, next, () => Db.removePlaylist(playlistId));
+      setPlaylists(next);
+    });
+  }, [runMutation, writeCollection]);
 
   const addDownload = useCallback((item: Omit<OfflineDownloadItem, 'downloadedAt'>) => {
     setDownloads(prev => [
@@ -361,16 +402,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [subscriptions]);
 
   const toggleSubscription = useCallback((channelId: string, name: string, thumbnail = '') => {
-    setSubscriptions(prev => {
-      const exists = prev.some(s => s.channelId === channelId);
-      const willSubscribe = !exists;
-      void Db.setSubscription(channelId, name, thumbnail, willSubscribe);
-      if (willSubscribe) {
-        return [{ channelId, name, thumbnail, subscribedAt: Date.now() }, ...prev];
-      }
-      return prev.filter(s => s.channelId !== channelId);
+    void runMutation(async () => {
+      const subscribe = !subscriptionsRef.current.some(s => s.channelId === channelId);
+      await Db.setSubscription(channelId, name, thumbnail, subscribe);
+      setSubscriptions(previous => subscribe
+        ? [{ channelId, name, thumbnail, subscribedAt: Date.now() }, ...previous]
+        : previous.filter(s => s.channelId !== channelId));
     });
-  }, []);
+  }, [runMutation]);
 
   const disconnectGoogle = useCallback(async () => {
     await GoogleAuth.disconnectGoogleAuth();
@@ -378,25 +417,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const clearHistory = useCallback(() => {
-    void Db.clearAllHistory();
-    setHistory([]);
-  }, []);
+    void runMutation(async () => {
+      await writeCollection(STORAGE_KEYS.history, [], () => Db.clearAllHistory());
+      setHistory([]);
+    });
+  }, [runMutation, writeCollection]);
 
   const clearLocalData = useCallback(() => {
-    for (const item of downloads) {
-      const fileName = DownloadManager.suggestFileName(item.videoId, item.format === 'audio' ? 'audio' : 'mp4');
-      void DownloadManager.deleteDownload(fileName)
-        .catch(() => setStorageError('Some downloaded files could not be removed.'));
-    }
-    void Db.resetAllLocalData();
-    setPlaylists([]);
-    setLikedVideoIds([]);
-    setSavedVideoIds([]);
-    setHistory([]);
-    setDownloads([]);
-    setSubscriptions([]);
-    setVideoCatalog({});
-  }, [downloads]);
+    void runMutation(async () => {
+      // Do not delete files or clear UI state when the database reset fails.
+      await Db.resetAllLocalData();
+      for (const item of downloads) {
+        const fileName = DownloadManager.suggestFileName(item.videoId, item.format === 'audio' ? 'audio' : 'mp4');
+        await DownloadManager.deleteDownload(fileName)
+          .catch(() => setStorageError('Some downloaded files could not be removed.'));
+      }
+      setPlaylists([]);
+      setLikedVideoIds([]);
+      setSavedVideoIds([]);
+      setHistory([]);
+      setDownloads([]);
+      setSubscriptions([]);
+      setVideoCatalog({});
+    });
+  }, [downloads, runMutation]);
 
   const value = useMemo(() => ({
     playlists,
