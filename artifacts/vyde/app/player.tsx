@@ -113,6 +113,10 @@ export default function PlayerScreen() {
   const initialBrightness = useRef(1.0);
   const initialVolume = useRef(1.0);
 
+  const gestureSnapshot = useRef<{ brightness: number; volume: number; player: ReturnType<typeof useVideoPlayer> | null }>({ brightness, volume, player: null });
+  gestureSnapshot.current.brightness = brightness;
+  gestureSnapshot.current.volume = volume;
+
   const playerPanResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
@@ -126,8 +130,8 @@ export default function PlayerScreen() {
       onPanResponderGrant: (evt) => {
         panStartX.current = evt.nativeEvent.locationX;
         panStartY.current = evt.nativeEvent.locationY;
-        initialBrightness.current = brightness;
-        initialVolume.current = volume;
+        initialBrightness.current = gestureSnapshot.current.brightness;
+        initialVolume.current = gestureSnapshot.current.volume;
       },
       onPanResponderMove: (evt, gestureState) => {
         const deltaY = -gestureState.dy; // swipe up is positive
@@ -142,7 +146,7 @@ export default function PlayerScreen() {
           // Right side: Vertical Pan -> Volume
           const nextV = Math.max(0.0, Math.min(1.0, initialVolume.current + deltaY * sensitivity));
           setVolume(nextV);
-          nativePlayer.volume = nextV;
+          if (gestureSnapshot.current.player) gestureSnapshot.current.player.volume = nextV;
           showHud(nextV > 0 ? 'volume-high-outline' : 'volume-mute-outline', `Volume: ${Math.round(nextV * 100)}%`);
         }
       },
@@ -191,11 +195,15 @@ export default function PlayerScreen() {
     playbackSource ? { uri: playbackSource.uri, headers: playbackSource.headers } : null,
     player => {
     player.audioMixingMode = 'auto';
+    player.volume = volume;
+    player.playbackRate = speed;
     player.staysActiveInBackground = false;
     player.showNowPlayingNotification = false;
     player.timeUpdateEventInterval = 0.25;
     },
   );
+
+  gestureSnapshot.current.player = nativePlayer;
 
   useEffect(() => {
     setLiveVideo(null);
