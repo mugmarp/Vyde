@@ -113,3 +113,13 @@ Local verification: **56 tests pass**, including ten additional hydration tests 
 CI status checked while preparing this batch: run [44842072831](https://github.com/mugmarp/Vyde/actions/runs/44842072831), commit `e51241f`, has passed workspace verification, the advisory extractor benchmark and bundle/export checks; its Android debug build is still running. Run [44842641998](https://github.com/mugmarp/Vyde/actions/runs/44842641998), commit `001265c`, is pending behind it. The new debug/unsigned-release matrix has not yet produced a verified release artifact. Later pushes may replace pending runs under GitHub's concurrency behavior; running main builds are preserved.
 
 Current progress: phase 03 persistence foundations are in progress; the media-source boundary and engine evaluation are documented, and a prior debug APK compiled successfully in CI. Canonical metadata, durable download identities, mutation rollback, recovery/backup UX and the native media implementation remain open. S21 testing remains explicitly deferred; no device playback/download/offline result is claimed.
+
+## Batch 5 — Actual CI failures and standalone APK packaging
+
+CI re-verification changed the known status: run `44842072831` compiled debug successfully but failed its certificate parser during provenance. Run `44843351039` passed 56 regressions, workspace typechecks and exports, but release compilation failed in `createBundleReleaseJsAndAssets` because Babel could not resolve the undeclared app preset. The pending `001265c` run was replaced by the newer run under GitHub concurrency; it did not verify the release matrix.
+
+Added the direct pinned `babel-preset-expo` dependency, refreshed the lockfile, and added a Babel configuration preflight to APK jobs. Moved provenance into a testable Python script and accepted both AOSP-documented signer output forms while retaining signature verification. Source inspection also confirmed that React Native's debug variant normally skips JavaScript bundling; CI now embeds it and rejects either APK variant without a nonempty bundle.
+
+Verification: offline frozen dependency installation succeeds; the app's real Babel configuration now resolves locally without bundling. **57 Node tests pass**, including one wrapper executing **nine Python verifier tests**. `git diff --check` passes. No local build/export/Gradle task ran. The new native compilation/provenance results remain pending the next CI run; no device outcome is claimed. See [artifact details](CI_ANDROID_ARTIFACTS.md).
+
+Repository mutation error/rollback work remains next; this batch addressed observed CI failures before proceeding with that change.

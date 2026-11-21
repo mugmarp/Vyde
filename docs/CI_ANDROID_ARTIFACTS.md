@@ -32,3 +32,13 @@ Verification checks the expected package `com.vyde.android`, ZIP integrity, vari
 Open a successful workflow run on the repository's Actions tab and select the desired artifact. Extract the ZIP. Use the debug APK for S21 testing while release signing remains deferred. Always record the source revision and do not assume an old artifact includes newer migrations or media changes.
 
 See [the device test baseline](ANDROID_DEVICE_TEST_BASELINE.md) for the initial successful build and deferred runtime checks. Future workflow results must establish successful execution of this new two-variant matrix; YAML parsing alone does not prove release compilation.
+
+## Re-verification fixes
+
+Run `44842072831` compiled its debug APK but failed provenance because the certificate parser recognized only numbered signers. The verifier now also supports the SDK-range signer form documented by [AOSP](https://android.googlesource.com/platform/build/+/master/tools/releasetools/check_target_files_signatures.py); a successful `apksigner` exit remains mandatory for debug. Failure diagnostics include tool output. The parser change awaits CI confirmation against the actual APK output.
+
+Run `44843351039` passed workspace verification and exports but its release Gradle bundle task failed with `Cannot find module 'babel-preset-expo'`. The app now declares that preset directly at version `54.0.12`, and both APK jobs resolve the Babel configuration before compiling native code.
+
+React Native's installed Gradle plugin treats debug as a variant that skips bundling by default. CI now overrides `react.debuggableVariants` to embed JavaScript in the sideload debug APK. Both variants must contain a nonempty `assets/index.android.bundle` before upload. This closes a packaging gap; it does not establish successful launch or offline playback on the S21. Earlier debug artifacts are not evidence of standalone launch.
+
+The verifier lives in `scripts/ci/verify_android_apk.py`. Nine synthetic-APK/tool-boundary tests exercise numbered/SDK-range certificates, unsigned release output, signed-release rejection, invalid/missing debug certificates, wrong package, missing bundle and corrupt ZIP. These run through `pnpm test`; they do not invoke Gradle or Android tools locally.
