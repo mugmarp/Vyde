@@ -50,8 +50,13 @@ The verifier checks package `com.vyde.android`, ZIP integrity, a nonempty `asset
 
 Successful release provenance records `signing: release-key`, `installable: true` and the verified fingerprint. Debug records `signing: debug-key`. Every uploaded APK includes source revision, run URL, file size and APK SHA-256. GitHub's artifact ZIP checksum is distinct from the APK checksum inside it.
 
-Fifteen synthetic/tool-boundary cases cover signature output forms, signed release provenance, unsigned/wrong-key rejection, malformed APKs, missing bundles, missing signing secrets and private-temporary-file cleanup. These execute through `pnpm test` without local APK compilation or signing. First real release signing/pin validation awaits the new CI run.
+Fifteen synthetic/tool-boundary cases cover signature output forms, signed release provenance, unsigned/wrong-key rejection, malformed APKs, missing bundles, missing signing secrets and private-temporary-file cleanup. These execute through `pnpm test` without local APK compilation or signing. Real release signing and certificate-pin validation passed in run [44932070413](https://github.com/mugmarp/Vyde/actions/runs/44932070413), source `063bbdb`.
 
 ## Prior artifact history
 
 The original debug build `f7417fd` compiled but lacked its JavaScript bundle and failed standalone startup. The workflow now embeds and verifies that bundle. Initial provenance parsing recognized only numbered signers; it was corrected for SDK-range and actual `V2 Signer:` output. Run [44869087011](https://github.com/mugmarp/Vyde/actions/runs/44869087011), source `6d58ba8`, passed both debug and then-unsigned release jobs; its debug APK was installed and launched successfully on the mione U1. Subsequent `5081042` builds also passed. These runs predate private release signing.
+
+
+## First verified signed release
+
+Run [44932070413](https://github.com/mugmarp/Vyde/actions/runs/44932070413), source `063bbdb5eb18f4527c46b82f546bf71cb3063767`, passed all jobs. Its [release artifact](https://github.com/mugmarp/Vyde/actions/runs/44932070413/artifacts/14718499546) passed actual APK signature and pinned certificate verification. APK SHA-256: `5f4ab71c40def1ec5726f2b8501286d289a2e15f2de3f94f2e7bf9cb1b2a61be`. This establishes signed packaging, not device installation or media acceptance. It predates the subsequent critical-audit remediation commits.

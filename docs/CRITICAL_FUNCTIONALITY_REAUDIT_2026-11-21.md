@@ -132,3 +132,21 @@ Required separation: deterministic adapter regressions; live production-resolver
 5. **Deliver remaining agreed capabilities:** C15/C16/C18 with versioned acceptance records. Account writes, media features, download processing and release recovery must have their own gates.
 
 Minimum stable-release evidence: audible playback and seeking across the agreed corpus; paired HD; captions/live/background/PiP behavior; comments initial/next pages; correct audio/video downloads and exports; offline restart; same-video multi-format ownership; failed/reset/migration recovery; and stable signed updates. Repeat relevant acceptance on the S21 Android 15/One UI 7. A signed test APK may be used for development testing, but this audit does not approve it as a completed stable release.
+
+
+## Remediation after the audited revision
+
+The findings above describe source `063bbdb`; the following records subsequent changes without replacing that evidence. First remediation spans `661ff6e` through `91e4315` and passes 156 regression cases. CI compilation and physical acceptance of this batch remain pending.
+
+| Finding | Remediation status |
+| --- | --- |
+| C01 | Unresolved signature/n candidates rejected; HTTPS enforced. Full extractor coverage is still open. |
+| C02 | Partial-entity completion checks fixed. Track/container validation and processing remain open. |
+| C03 | Per-key write ordering prevents an older queued snapshot overwriting a newer reset. Cross-store crash recovery remains open. |
+| C05 | Gestures use the current player and control state. Physical verification pending. |
+| C07 | File deletion errors propagate; failed removals retain their library records, including partial reset. |
+| C11 | Player-script fetch/parse work is shared per attempt, including failure; later attempts can retry. Complete budget/cancellation remains open. |
+| C12 | Cache publication occurs after successful lifetime validation; late synchronous completion regression passes. |
+| C19 | Below-threshold probe now exits with failure, requires HLS/progressive candidates and explicitly reports native playback unmeasured. CI remains advisory; production harness/native acceptance remain open. |
+
+C04, C06, C08–C10 and C13–C18 remain open. In particular, this batch does not deliver durable Android jobs, independent multi-format asset ownership, complete migration/reconciliation, account synchronization, native HD processing or the full media acceptance matrix. See [progress batch 13](IMPLEMENTATION_PROGRESS.md#batch-13--first-critical-audit-remediation).

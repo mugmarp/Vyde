@@ -198,3 +198,21 @@ Verification: **135 Node cases pass**, including a wrapper running **15 Python s
 These probes are not additions to the 135-case passing suite. They expose missing regressions and narrow earlier guarantees: SQL commit-first protection is not cross-store atomicity; cancellation guards do not cover every deadline/side-effect race; nonempty normalized candidates and transferred byte counts are not valid-media proof; and green benchmark/build jobs are not playback acceptance. The report separately identifies source-confirmed gaps in session/quality restoration, watch progress, background/live/captions, durable jobs/export, account integration, success copy and release versioning/recovery.
 
 The next implementation must address the recorded false-success and data-integrity paths before stable-release claims. This audit deliberately does not claim the findings are fixed. Release signing/package verification remains distinct from application correctness. No app was installed/uninstalled or reset during this audit.
+
+
+## Batch 13 — First critical-audit remediation
+
+Six focused implementation commits address reproduced failure paths:
+
+| Commit | Correction | Remaining boundary |
+| --- | --- | --- |
+| `661ff6e` | Reject unresolved signature/n challenges and non-HTTPS candidates; share player-script work within an extraction attempt, including failures | Maintained-engine evaluation, broader challenge coverage and full player cancellation remain open |
+| `b66e9b3` | Publish discovery cache entries only after successful request-lifetime validation | Complete player request lifetime is separate |
+| `6594a65` | Validate HTTP 206 Content-Range, full entity size and final file size; propagate deletion errors | Track validation, mux/demux/transcode and durable resumable jobs remain open |
+| `def3161` | Serialize writes per storage key; retain download records/files after failed removal, including partial reset | Cross-store crash reconciliation, job identity and concurrent reset lifecycle remain open |
+| `85764ea` | Gesture callbacks read the current player/control state; replacement players receive volume and speed | Full playback position/play-pause intent restoration and physical gesture verification remain open |
+| `91e4315` | Candidate probe exits unsuccessfully below its threshold; video-only results do not count as playable; Actions summarizes the advisory outcome | Simplified probe remains advisory and does not measure native decoding, audible playback or release acceptance |
+
+Verification: **156 full-suite Node cases pass**, including the wrapper for 15 Python artifact/signing-boundary cases. New regressions cover the reproduced failure paths, valid complete 206 responses, supported n transformation, retry after failed script loading, independent storage keys and failed-write recovery. No local build, typecheck, export, Gradle task or APK signing ran. Device testing is pending; no phone operation was performed for this batch. Compilation and packaging are delegated to the next Actions run.
+
+Separately, run [44932070413](https://github.com/mugmarp/Vyde/actions/runs/44932070413), source `063bbdb`, passed all jobs and produced the first verified privately signed release artifact. That artifact predates this remediation batch. The critical audit remains a historical snapshot; see its appended remediation status for unresolved work.

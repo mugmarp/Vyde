@@ -42,3 +42,5 @@ The 20-second budget applies to discovery, not the complete multi-client player/
 ## Later audit qualification
 
 The critical re-audit at source `063bbdb` reproduced a late synchronous-work case: the cache write occurs before the lifetime helper performs its final elapsed-deadline check. The caller receives RequestTimeoutError, but the result can already be cached. Explicit asynchronous cancellation tests pass; the broader late-result guarantee needs the C12 fix in [the critical audit](CRITICAL_FUNCTIONALITY_REAUDIT_2026-11-21.md). Move cache side effects after successful lifetime validation rather than treating all late-result handling as complete.
+
+The subsequent C12 correction in `b66e9b3` moves cache publication after successful lifetime validation and caller-cancellation checking. A regression reproducing synchronous completion after the deadline now passes: a timed-out result is not reused by the next request. This fixes that cache side effect; it does not extend discovery budgeting to the entire player pipeline.
