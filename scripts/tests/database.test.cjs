@@ -4,7 +4,11 @@ const { createLoader, deferred, settle } = require('./helpers/load-typescript.cj
 
 function databaseFixture(storage, platform = 'android') {
   let opens = 0;
-  const database = { execAsync: async () => {}, runAsync: async () => {}, closeAsync: async () => {} };
+  const database = {
+    execAsync: async () => {}, runAsync: async () => {}, closeAsync: async () => {},
+    getFirstAsync: async () => null,
+    withTransactionAsync: async task => task(),
+  };
   const service = createLoader({
     'react-native': { Platform: { OS: platform } },
     '@react-native-async-storage/async-storage': storage,

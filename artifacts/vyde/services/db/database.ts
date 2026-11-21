@@ -13,8 +13,8 @@
  */
 
 import { Platform } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { openLocalDatabase } from './sqlite';
+import { migrateLocalDatabase } from './migrations';
 
 // ─── Data Types ───────────────────────────────────────────────────────────────
 
@@ -79,62 +79,7 @@ async function initializeDatabase(): Promise<SQLiteDb | null> {
   try {
     dbInstance = await openLocalDatabase();
 
-    // Run schema creation in WAL mode for concurrent read/write performance
-    await dbInstance.execAsync(`
-      PRAGMA journal_mode = WAL;
-      PRAGMA foreign_keys = ON;
-
-      CREATE TABLE IF NOT EXISTS history (
-        videoId TEXT PRIMARY KEY,
-        title TEXT NOT NULL,
-        channel TEXT DEFAULT '',
-        thumbnail TEXT DEFAULT '',
-        progress REAL DEFAULT 0,
-        lastWatchedAt INTEGER NOT NULL
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_history_lastWatchedAt ON history (lastWatchedAt DESC);
-
-      CREATE TABLE IF NOT EXISTS likes (
-        videoId TEXT PRIMARY KEY,
-        title TEXT NOT NULL,
-        channel TEXT DEFAULT '',
-        thumbnail TEXT DEFAULT '',
-        likedAt INTEGER NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS saves (
-        videoId TEXT PRIMARY KEY,
-        title TEXT NOT NULL,
-        channel TEXT DEFAULT '',
-        thumbnail TEXT DEFAULT '',
-        savedAt INTEGER NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS playlists (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        isPrivate INTEGER DEFAULT 1,
-        createdAt INTEGER NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS playlist_items (
-        playlistId TEXT NOT NULL,
-        videoId TEXT NOT NULL,
-        position INTEGER DEFAULT 0,
-        PRIMARY KEY (playlistId, videoId),
-        FOREIGN KEY (playlistId) REFERENCES playlists(id) ON DELETE CASCADE
-      );
-
-      CREATE TABLE IF NOT EXISTS subscriptions (
-        channelId TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        thumbnail TEXT DEFAULT '',
-        subscribedAt INTEGER NOT NULL
-      );
-    `);
-
-    await migrateFromAsyncStorage(dbInstance);
+    await migrateLocalDatabase(dbInstance);
 
     return dbInstance;
   } catch (error) {
@@ -145,98 +90,6 @@ async function initializeDatabase(): Promise<SQLiteDb | null> {
       console.warn('[SQLite] Failed to close uninitialized database:', closeError);
     }
     return null;
-  }
-}
-
-/**
- * Migrates data from legacy AsyncStorage keys to SQLite on first initialization.
- */
-async function migrateFromAsyncStorage(db: SQLiteDb): Promise<void> {
-  try {
-    const migratedKey = 'vyde_sqlite_migrated_v1';
-    const hasMigrated = await AsyncStorage.getItem(migratedKey);
-    if (hasMigrated === 'true') return;
-
-    // Migrate history
-    const storedHistory = await AsyncStorage.getItem('vyde_local_history_v1');
-    if (storedHistory) {
-      const items = JSON.parse(storedHistory);
-      if (Array.isArray(items)) {
-        for (const item of items) {
-          if (item?.videoId && item?.title) {
-            await db.runAsync(
-              `INSERT OR REPLACE INTO history (videoId, title, channel, thumbnail, progress, lastWatchedAt)
-               VALUES (?, ?, ?, ?, ?, ?)`,
-              [item.videoId, item.title, item.channel || '', item.thumbnail || '', item.progress || 0, item.lastWatchedAt || Date.now()]
-            );
-          }
-        }
-      }
-    }
-
-    // Migrate likes
-    const storedLikes = await AsyncStorage.getItem('vyde_local_liked_v1');
-    if (storedLikes) {
-      const ids = JSON.parse(storedLikes);
-      if (Array.isArray(ids)) {
-        for (const id of ids) {
-          if (typeof id === 'string') {
-            await db.runAsync(
-              `INSERT OR IGNORE INTO likes (videoId, title, channel, thumbnail, likedAt)
-               VALUES (?, ?, '', '', ?)`,
-              [id, 'Liked Video', Date.now()]
-            );
-          }
-        }
-      }
-    }
-
-    // Migrate saves
-    const storedSaves = await AsyncStorage.getItem('vyde_local_saved_v1');
-    if (storedSaves) {
-      const ids = JSON.parse(storedSaves);
-      if (Array.isArray(ids)) {
-        for (const id of ids) {
-          if (typeof id === 'string') {
-            await db.runAsync(
-              `INSERT OR IGNORE INTO saves (videoId, title, channel, thumbnail, savedAt)
-               VALUES (?, ?, '', '', ?)`,
-              [id, 'Saved Video', Date.now()]
-            );
-          }
-        }
-      }
-    }
-
-    // Migrate playlists
-    const storedPlaylists = await AsyncStorage.getItem('vyde_local_playlists_v1');
-    if (storedPlaylists) {
-      const playlists = JSON.parse(storedPlaylists);
-      if (Array.isArray(playlists)) {
-        for (const pl of playlists) {
-          if (pl?.id && pl?.name) {
-            await db.runAsync(
-              `INSERT OR REPLACE INTO playlists (id, name, isPrivate, createdAt) VALUES (?, ?, ?, ?)`,
-              [pl.id, pl.name, pl.isPrivate !== false ? 1 : 0, Date.now()]
-            );
-            if (Array.isArray(pl.videoIds)) {
-              for (let i = 0; i < pl.videoIds.length; i++) {
-                await db.runAsync(
-                  `INSERT OR IGNORE INTO playlist_items (playlistId, videoId, position) VALUES (?, ?, ?)`,
-                  [pl.id, pl.videoIds[i], i]
-                );
-              }
-            }
-          }
-        }
-      }
-    }
-
-    await AsyncStorage.setItem(migratedKey, 'true');
-    console.log('[SQLite] Legacy AsyncStorage data migrated successfully to SQLite.');
-  } catch (err) {
-    // A migration failure must not publish readiness or overwrite legacy data.
-    throw err;
   }
 }
 
