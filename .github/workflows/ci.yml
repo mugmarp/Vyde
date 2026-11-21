@@ -142,7 +142,8 @@ jobs:
 
       - name: Check Release Babel Configuration
         working-directory: artifacts/vyde
-        run: node -e "require('@babel/core').loadPartialConfig({ filename: require.resolve('expo-router/entry') }); console.log('Babel presets resolved')"
+        run: |
+          node -e "require('@babel/core').loadPartialConfig({ filename: require.resolve('expo-router/entry') }); console.log('Babel presets resolved')"
 
       - name: Prebuild Native Android Project
         working-directory: artifacts/vyde
