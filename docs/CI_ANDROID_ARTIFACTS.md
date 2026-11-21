@@ -1,46 +1,57 @@
-# Android debug and unsigned release artifacts
+# Android debug and signed release artifacts
 
 Updated: 2026-11-21 (Africa/Kampala).
 
-The owner requested both APK variants and explicitly chose to keep release APKs unsigned until signing is configured. All APK compilation occurs in GitHub Actions.
+The owner initially chose unsigned releases, then requested installable release APKs signed through GitHub Actions. All APK compilation and signing occur in Actions. One-time release-key provisioning is credential setup, not a local app build.
 
-## Workflow outputs
+## Outputs and identity
 
-The `android-build` matrix builds debug and release independently after verification, on `main`/version-tag pushes and manual dispatch. One variant failing does not cancel the other. Each successful variant uploads its own artifact for 14 days:
-
-| Artifact | Gradle task | Signing | Intended use |
+| Artifact | Configuration | Android signing | Installation |
 | --- | --- | --- | --- |
-| `vyde-android-debug-apk` | `assembleDebug` | Verified debug signing certificate | Installable development/device testing APK |
-| `vyde-android-release-unsigned-apk` | `assembleRelease` | Explicitly unsigned | Release-variant build verification and later signing; not directly installable |
+| `vyde-android-debug-apk` | Debug with embedded JavaScript | Expo/React Native template debug key | Installable development build |
+| `vyde-android-release-apk` | Release with embedded JavaScript | Persistent Vyde release key from Actions secrets | Installable after signature/pin verification |
 
-These are Actions artifacts, not automatic GitHub Releases or a published F-Droid repository. A release build configuration is not proof of feature readiness or production distribution.
+Both use package `com.vyde.android`. Different certificates mean a release APK cannot update a debug-signed installation in place. Preserve/export required local data before any intentional transition requiring uninstall; this signing change does not uninstall the user's app. Updates between release APKs require retaining the same release key.
 
-## Explicit signing behavior
+GitHub Actions executes Android `apksigner` using Vyde's keystore. GitHub commit signatures and artifact attestations are distinct; they do not provide an Android APK signing certificate. See [Android app signing](https://developer.android.com/studio/publish/app-signing).
 
-Expo's generated Android template signs release builds with the debug configuration by default. CI appends an Android DSL override after prebuild to set release `signingConfig` to `null`. The release verification step rejects a debuggable APK, a successfully verified signature, a v1 certificate entry, or an APK signing block. No release key, password or repository secret is generated or configured by this change.
+These remain Actions artifacts retained for 14 days, not automatic GitHub Releases, F-Droid publication or proof of release feature readiness. Old `vyde-android-release-unsigned-apk` artifacts retain their original unsigned status; enabling signing does not modify previously uploaded files.
 
-When release signing is chosen later, use a persistent owner-controlled key, secure backup and protected CI credentials. Replace the explicit unsigned path and its verification/artifact naming deliberately. Debug-key artifacts and future production-key artifacts are not interchangeable for in-place updates.
+## How debug signing worked
 
-## Provenance and validation
+The generated Gradle project selects its bundled `android/app/debug.keystore`, alias `androiddebugkey`, with the conventional template password `android`. It is not GitHub's commit-signing key and is not generated as a new release identity for every run. Inspection of the template certificate matches the debug certificate observed in CI:
 
-Every uploaded variant includes `apk-provenance.json` containing source commit, run URL, variant, APK filename/size/SHA-256, package/version, debuggable state, signing status and certificate fingerprints when signed.
+`fac61745dc0903786fb9ede62a962b399f7348f0bb6f899b8332667591033b9c`
 
-Verification checks the expected package `com.vyde.android`, ZIP integrity, variant-specific debuggability and signing state. The per-APK checksum differs from GitHub's artifact ZIP checksum. Debug signatures are verified with Android `apksigner`. Unsigned release metadata explicitly records `installable: false` and an empty certificate list.
+This is a development identity, not Vyde's private release key.
 
-## Downloading
+## Persistent release signing
 
-Open a successful workflow run on the repository's Actions tab and select the desired artifact. Extract the ZIP. Use the debug APK for S21 testing while release signing remains deferred. Always record the source revision and do not assume an old artifact includes newer migrations or media changes.
+The release key was generated once as a password-protected PKCS12 keystore with a 3072-bit RSA key. Its public certificate pin and alias are in [the release identity configuration](../config/android-release-signing.json). The expected SHA-256 fingerprint is:
 
-See [the device test baseline](ANDROID_DEVICE_TEST_BASELINE.md) for the initial successful build and deferred runtime checks. Future workflow results must establish successful execution of this new two-variant matrix; YAML parsing alone does not prove release compilation.
+`72e2ca470b55cfc0f80570e64e82ea5de550e602c637179b712dad3db4a957b6`
 
-## Re-verification fixes
+Private local recovery material is under `/home/mark/.local/share/vyde/signing/`: `vyde-release.p12` and `credentials.json`. The directory is mode 0700 and both files are mode 0600. Retain a secure owner-controlled backup of both files before relying on public releases. Private key material and passwords are not committed or printed.
 
-Run `44842072831` compiled its debug APK but failed provenance because the certificate parser recognized only numbered signers. The verifier now also supports the SDK-range signer form documented by [AOSP](https://android.googlesource.com/platform/build/+/master/tools/releasetools/check_target_files_signatures.py); a successful `apksigner` exit remains mandatory for debug. Failure diagnostics include tool output. The parser change awaits CI confirmation against the actual APK output.
+Actions secrets:
 
-Run `44843351039` passed workspace verification and exports but its release Gradle bundle task failed with `Cannot find module 'babel-preset-expo'`. The app now declares that preset directly at version `54.0.12`, and both APK jobs resolve the Babel configuration before compiling native code.
+- `ANDROID_RELEASE_KEYSTORE_BASE64`
+- `ANDROID_RELEASE_STORE_PASSWORD`
+- `ANDROID_RELEASE_KEY_PASSWORD`
+- `ANDROID_RELEASE_KEY_ALIAS`
 
-React Native's installed Gradle plugin treats debug as a variant that skips bundling by default. CI now overrides `react.debuggableVariants` to embed JavaScript in the sideload debug APK. Both variants must contain a nonempty `assets/index.android.bundle` before upload. This closes a packaging gap; it does not establish successful launch or offline playback on the S21. Earlier debug artifacts are not evidence of standalone launch.
+The keystore is encoded for transport, then protected by GitHub's [Actions secret storage](https://docs.github.com/en/actions/security-for-github-actions/security-guides/using-secrets-in-github-actions); base64 itself is not encryption. Values are supplied only to the dedicated release-signing step, after compilation. Missing secrets fail that release job rather than silently producing an unsigned or debug-key release. Debug and release jobs remain independent.
 
-The verifier lives in `scripts/ci/verify_android_apk.py`. Nine synthetic-APK/tool-boundary tests exercise numbered/SDK-range certificates, unsigned release output, signed-release rejection, invalid/missing debug certificates, wrong package, missing bundle and corrupt ZIP. These run through `pnpm test`; they do not invoke Gradle or Android tools locally.
+CI first overrides Expo's generated debug signing for the release build. `sign_android_release.py` decodes the persistent keystore into a private temporary directory, signs via `apksigner` with passwords passed by environment-variable reference, removes the temporary key on success/failure, and removes the unsigned input after successful signing. CI does not generate or rotate release keys.
 
-Run [44845025212](https://github.com/mugmarp/Vyde/actions/runs/44845025212), commit `357e9ae`, successfully compiled, verified and uploaded the unsigned release APK (artifact `14684100962`). Debug compilation and embedded-bundle validation also succeeded, but its certificate check rejected the actual tool output `V2 Signer: certificate SHA-256 digest: ...`. The parser now supports scheme-prefixed signers as well, with the exact observed output added as the tenth verifier regression. The previous numbered/SDK-range fix alone did not resolve this runner's output. Debug upload awaits a new run.
+## Verification and provenance
+
+The verifier checks package `com.vyde.android`, ZIP integrity, a nonempty `assets/index.android.bundle`, variant-specific debuggability, and successful Android signature verification. Release certificate fingerprints must match the committed public pin exactly. Unsigned releases and releases signed with a different key are rejected.
+
+Successful release provenance records `signing: release-key`, `installable: true` and the verified fingerprint. Debug records `signing: debug-key`. Every uploaded APK includes source revision, run URL, file size and APK SHA-256. GitHub's artifact ZIP checksum is distinct from the APK checksum inside it.
+
+Fifteen synthetic/tool-boundary cases cover signature output forms, signed release provenance, unsigned/wrong-key rejection, malformed APKs, missing bundles, missing signing secrets and private-temporary-file cleanup. These execute through `pnpm test` without local APK compilation or signing. First real release signing/pin validation awaits the new CI run.
+
+## Prior artifact history
+
+The original debug build `f7417fd` compiled but lacked its JavaScript bundle and failed standalone startup. The workflow now embeds and verifies that bundle. Initial provenance parsing recognized only numbered signers; it was corrected for SDK-range and actual `V2 Signer:` output. Run [44869087011](https://github.com/mugmarp/Vyde/actions/runs/44869087011), source `6d58ba8`, passed both debug and then-unsigned release jobs; its debug APK was installed and launched successfully on the mione U1. Subsequent `5081042` builds also passed. These runs predate private release signing.

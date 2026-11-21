@@ -161,11 +161,11 @@ jobs:
           }
           GRADLE
 
-      - name: Configure Explicitly Unsigned Release
+      - name: Prepare Release for Dedicated Signing
         if: matrix.variant == 'release'
         run: |
           # Expo's generated template signs release with its debug key by
-          # default. Override that explicitly until release signing is chosen.
+          # default. Build unsigned, then sign only in the dedicated secret-bearing step.
           cat >> artifacts/vyde/android/app/build.gradle <<'GRADLE'
 
           android {
@@ -182,10 +182,19 @@ jobs:
         working-directory: artifacts/vyde/android
         run: ./gradlew assembleDebug --no-daemon
 
-      - name: Build Unsigned Release APK
+      - name: Build Release APK for Signing
         if: matrix.variant == 'release'
         working-directory: artifacts/vyde/android
         run: ./gradlew assembleRelease --no-daemon
+
+      - name: Sign Release APK with Persistent Key
+        if: matrix.variant == 'release'
+        env:
+          ANDROID_RELEASE_KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
+          ANDROID_RELEASE_STORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_STORE_PASSWORD }}
+          ANDROID_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
+          ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+        run: python3 scripts/ci/sign_android_release.py
 
       - name: Verify APK Identity and Record Provenance
         env:
@@ -196,7 +205,7 @@ jobs:
       - name: Upload Android APK
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.variant == 'debug' && 'vyde-android-debug-apk' || 'vyde-android-release-unsigned-apk' }}
+          name: ${{ matrix.variant == 'debug' && 'vyde-android-debug-apk' || 'vyde-android-release-apk' }}
           path: |
             artifacts/vyde/android/app/build/outputs/apk/${{ matrix.variant }}/*.apk
             artifacts/vyde/android/app/build/outputs/apk/${{ matrix.variant }}/apk-provenance.json

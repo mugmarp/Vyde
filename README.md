@@ -6,7 +6,7 @@ Vyde delivers a cinematic video discovery and playback experience with zero mand
 
 **Implementation status:** Android development is underway. See the [implementation master plan](docs/IMPLEMENTATION_MASTER_PLAN.md) for the first-release contract and phase acceptance checks. Feature descriptions below include intended behavior; account sync, durable download recovery, separate-track processing/export, live/captions, and background/PiP still require implementation and device acceptance. Historical completion percentages are not release verification.
 
-**CI APKs:** GitHub Actions builds a signed debug APK for testing and an explicitly unsigned release APK for later signing. See [artifact names, provenance and signing behavior](docs/CI_ANDROID_ARTIFACTS.md). Unsigned release output is not directly installable.
+**CI APKs:** GitHub Actions builds a debug-signed APK and a release APK signed with Vyde’s persistent release key. See [artifact names, provenance and signing behavior](docs/CI_ANDROID_ARTIFACTS.md). Historical unsigned artifacts are not installable; use the new signed release artifact after its CI verification passes.
 
 ---
 

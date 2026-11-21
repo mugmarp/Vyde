@@ -30,6 +30,9 @@ class ProvenanceTests(unittest.TestCase):
                     archive.writestr('assets/index.android.bundle', 'synthetic bundle')
             if corrupt:
                 apk.write_bytes(b'not a ZIP')
+            config = root / 'config'
+            config.mkdir()
+            (config / 'android-release-signing.json').write_text(json.dumps({'certificateSha256': DIGEST}))
             sdk = root / 'sdk/build-tools/36.0.0'
             sdk.mkdir(parents=True)
             (sdk / 'aapt').touch()
@@ -76,14 +79,19 @@ class ProvenanceTests(unittest.TestCase):
         self.assertEqual(result['artifacts'][0]['signerCertificateSha256'],
                          ['fac61745dc0903786fb9ede62a962b399f7348f0bb6f899b8332667591033b9c'])
 
-    def test_unsigned_release(self):
-        result = self.verify(variant='release', signing='', signature_result=1)['artifacts'][0]
-        self.assertEqual(result['signing'], 'unsigned')
-        self.assertFalse(result['installable'])
+    def test_unsigned_release_is_rejected(self):
+        with self.assertRaisesRegex(SystemExit, 'Release APK signing verification failed'):
+            self.verify(variant='release', signing='', signature_result=1)
 
-    def test_signed_release_is_rejected(self):
-        with self.assertRaisesRegex(SystemExit, 'must remain unsigned'):
-            self.verify(variant='release')
+    def test_signed_release_has_installable_provenance(self):
+        result = self.verify(variant='release')['artifacts'][0]
+        self.assertEqual(result['signing'], 'release-key')
+        self.assertTrue(result['installable'])
+        self.assertEqual(result['signerCertificateSha256'], [DIGEST])
+
+    def test_wrong_release_certificate_is_rejected(self):
+        with self.assertRaisesRegex(SystemExit, 'does not match the pinned identity'):
+            self.verify(variant='release', signing='V2 Signer: certificate SHA-256 digest: ' + 'cd' * 32)
 
     def test_failed_debug_verification_is_rejected_even_with_certificate(self):
         with self.assertRaisesRegex(SystemExit, 'signing verification failed'):
@@ -100,6 +108,10 @@ class ProvenanceTests(unittest.TestCase):
     def test_missing_bundle_is_rejected(self):
         with self.assertRaisesRegex(SystemExit, 'missing its embedded JavaScript'):
             self.verify(bundle=False)
+
+    def test_unknown_variant_is_rejected(self):
+        with self.assertRaisesRegex(SystemExit, 'Unsupported APK variant'):
+            self.verify(variant='unknown')
 
     def test_corrupt_apk_is_rejected(self):
         with self.assertRaises(zipfile.BadZipFile):

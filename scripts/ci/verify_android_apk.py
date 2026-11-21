@@ -1,4 +1,4 @@
-import hashlib, json, os, pathlib, re, struct, subprocess, zipfile
+import hashlib, json, os, pathlib, re, subprocess, zipfile
 
 
 def signer_certificates(output):
@@ -12,6 +12,8 @@ def signer_certificates(output):
 
 def main():
     variant = os.environ['APK_VARIANT']
+    if variant not in ('debug', 'release'):
+        raise SystemExit('Unsupported APK variant')
     apk_dir = pathlib.Path('artifacts/vyde/android/app/build/outputs/apk') / variant
     sdk = pathlib.Path(os.environ.get('ANDROID_HOME') or os.environ['ANDROID_SDK_ROOT'])
     tools = sorted((sdk / 'build-tools').glob('*/aapt'), key=lambda p: tuple(map(int, re.findall(r'\d+', p.parent.name))))
@@ -36,31 +38,18 @@ def main():
                 raise SystemExit('APK ZIP integrity check failed')
             if 'assets/index.android.bundle' not in archive.namelist() or not archive.getinfo('assets/index.android.bundle').file_size:
                 raise SystemExit('APK is missing its embedded JavaScript bundle')
-            v1_signatures = any(re.match(r'META-INF/[^/]+\.(RSA|DSA|EC)$', name, re.I) for name in archive.namelist())
         signing = subprocess.run([str(aapt.parent / 'apksigner'), 'verify', '--print-certs', str(apk)], capture_output=True, text=True)
         certificates = signer_certificates(signing.stdout)
-        if variant == 'debug':
-            if signing.returncode != 0 or not certificates:
-                raise SystemExit('Debug APK signing verification failed\n' + signing.stdout + signing.stderr)
-        else:
-            # Check the actual signing-block position, not arbitrary
-            # strings that might also appear inside an application asset.
-            with apk.open('rb') as binary:
-                binary.seek(max(0, apk.stat().st_size - 65557))
-                tail = binary.read()
-                eocd = tail.rfind(b'PK\x05\x06')
-                if eocd < 0:
-                    raise SystemExit('Missing APK ZIP directory')
-                directory = struct.unpack_from('<I', tail, eocd + 16)[0]
-                if directory == 0xffffffff or directory < 16:
-                    raise SystemExit('Unsupported APK ZIP directory')
-                binary.seek(directory - 16)
-                signing_block = binary.read(16) == b'APK Sig Block 42'
-            if signing.returncode == 0 or certificates or v1_signatures or signing_block:
-                raise SystemExit('Release must remain unsigned until signing is configured')
+        if signing.returncode != 0 or not certificates:
+            raise SystemExit(variant.title() + ' APK signing verification failed\n' + signing.stdout + signing.stderr)
+        if variant == 'release':
+            pin = json.loads(pathlib.Path('config/android-release-signing.json').read_text())
+            expected = pin['certificateSha256'].lower()
+            if not re.fullmatch(r'[0-9a-f]{64}', expected) or set(value.lower() for value in certificates) != {expected}:
+                raise SystemExit('Release signing certificate does not match the pinned identity')
         with apk.open('rb') as binary:
             digest = hashlib.file_digest(binary, 'sha256').hexdigest()
-        artifacts.append({'file': apk.name, 'bytes': apk.stat().st_size, 'sha256': digest, 'package': identity['name'], 'versionName': identity.get('versionName'), 'versionCode': identity.get('versionCode'), 'debuggable': debuggable, 'signing': 'debug-key' if variant == 'debug' else 'unsigned', 'installable': variant == 'debug', 'signerCertificateSha256': certificates})
+        artifacts.append({'file': apk.name, 'bytes': apk.stat().st_size, 'sha256': digest, 'package': identity['name'], 'versionName': identity.get('versionName'), 'versionCode': identity.get('versionCode'), 'debuggable': debuggable, 'signing': 'debug-key' if variant == 'debug' else 'release-key', 'installable': True, 'signerCertificateSha256': certificates})
     provenance = {'variant': variant, 'sourceCommit': os.environ['GITHUB_SHA'], 'run': os.environ['GITHUB_SERVER_URL'] + '/' + os.environ['GITHUB_REPOSITORY'] + '/actions/runs/' + os.environ['GITHUB_RUN_ID'], 'artifacts': artifacts}
     (apk_dir / 'apk-provenance.json').write_text(json.dumps(provenance, indent=2) + '\n')
     print(json.dumps(provenance, indent=2))
