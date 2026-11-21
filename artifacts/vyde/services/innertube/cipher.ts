@@ -19,8 +19,8 @@ import { InnerTubeFormat, InnerTubeStreamingData, VideoStreamCandidate } from '.
 // ─── Cache ────────────────────────────────────────────────────────────────────
 
 interface CipheredPlayerCache {
-  sigOps: SigOperation[];
-  nFnBody: string;
+  sigOps: SigOperation[] | null;
+  nFnBody: string | null;
 }
 
 type SigOpType = 'swap' | 'reverse' | 'splice';
@@ -136,7 +136,7 @@ function extractSigOps(js: string): SigOperation[] {
  * Extracts the n-parameter throttle-solving function body from base.js.
  * Returns a string of JS that can be evaluated with Function().
  */
-function extractNFnBody(js: string): string {
+function extractNFnBody(js: string): string | null {
   // Find the n-function: typically something like
   // var X=function(a){ ... complex body ... return a.join("") }
   const nFnPatterns = [
@@ -151,9 +151,9 @@ function extractNFnBody(js: string): string {
   }
 
   if (!fnName) {
-    // Fallback: return identity — n stays unchanged (may cause throttling)
-    console.warn('[Cipher] Could not extract n-param function; throttling may occur');
-    return 'return a;';
+    // An unknown transform is not a successful challenge resolution.
+    console.warn('[Cipher] Could not extract n-param function; the format remains unresolved');
+    return null;
   }
 
   // Extract function body
@@ -163,7 +163,7 @@ function extractNFnBody(js: string): string {
   );
   if (!bodyMatch) {
     console.warn('[Cipher] Could not extract n-param function body');
-    return 'return a;';
+    return null;
   }
 
   return bodyMatch[2];
@@ -171,16 +171,27 @@ function extractNFnBody(js: string): string {
 
 // ─── Cache loader ─────────────────────────────────────────────────────────────
 
+const playerLoads = new Map<string, Promise<CipheredPlayerCache>>();
 async function loadPlayerCache(playerId: string): Promise<CipheredPlayerCache> {
-  if (playerCache.has(playerId)) {
-    return playerCache.get(playerId)!;
-  }
-  const js = await fetchBaseJs(playerId);
-  const sigOps = extractSigOps(js);
-  const nFnBody = extractNFnBody(js);
-  const entry: CipheredPlayerCache = { sigOps, nFnBody };
-  playerCache.set(playerId, entry);
-  return entry;
+  const cached = playerCache.get(playerId);
+  if (cached) return cached;
+  const current = playerLoads.get(playerId);
+  if (current) return current;
+  const pending = (async () => {
+    const js = await fetchBaseJs(playerId);
+    let sigOps: SigOperation[] | null = null;
+    try { sigOps = extractSigOps(js); } catch { /* Signature support is checked only when required. */ }
+    const nFnBody = extractNFnBody(js);
+    if (!sigOps && !nFnBody) throw new Error('The player challenge format is unsupported.');
+    const entry = { sigOps, nFnBody };
+    if (playerCache.size >= 8) playerCache.delete(playerCache.keys().next().value!);
+    playerCache.set(playerId, entry);
+    return entry;
+  })();
+  playerLoads.set(playerId, pending);
+  const clear = () => { if (playerLoads.get(playerId) === pending) playerLoads.delete(playerId); };
+  void pending.then(clear, clear);
+  return pending;
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -212,15 +223,19 @@ function applySigOps(sig: string, ops: SigOperation[]): string {
 /**
  * Solves the n-parameter throttle challenge using the extracted function body.
  */
-function solveNParam(n: string, nFnBody: string): string {
+function solveNParam(n: string, nFnBody: string | null): string {
+  if (!nFnBody) throw new Error('The n challenge could not be resolved.');
   try {
     // eslint-disable-next-line no-new-func
     const fn = new Function('a', nFnBody);
     const result = fn(n);
-    return typeof result === 'string' ? result : n;
+    if (typeof result !== 'string' || !result || result.startsWith('enhanced_except_')) {
+      throw new Error('Invalid n challenge result.');
+    }
+    return result;
   } catch (e) {
     console.warn('[Cipher] n-param solve failed:', e);
-    return n;
+    throw new Error('The n challenge could not be resolved.');
   }
 }
 
@@ -247,94 +262,50 @@ export function parseSignatureCipher(
  * If the format has a signatureCipher, the caller must pass a resolved
  * signature (from decipherSignature). For unciphered formats, resolves directly.
  */
-export function resolveFormatUrl(
-  format: InnerTubeFormat,
-  resolvedSig?: string,
-): string | null {
-  // Direct URL — may still need n-param solved, done downstream
-  if (format.url && format.url.startsWith('https://')) {
-    return format.url;
-  }
-
-  const cipher = format.signatureCipher || format.cipher;
-  if (cipher) {
-    const parsed = parseSignatureCipher(cipher);
-    if (parsed) {
-      if (parsed.s && resolvedSig) {
-        const separator = parsed.url.includes('?') ? '&' : '?';
-        return `${parsed.url}${separator}${parsed.sp}=${encodeURIComponent(resolvedSig)}`;
-      }
-      // If no sig to inject, return base URL (will likely 403, but best effort)
-      return parsed.url;
+export function resolveFormatUrl(format: InnerTubeFormat, resolvedSig?: string): string | null {
+  try {
+    const parsed = !format.url ? parseSignatureCipher(format.signatureCipher || format.cipher || '') : null;
+    const uri = format.url ?? parsed?.url;
+    if (!uri) return null;
+    const url = new URL(uri);
+    if (url.protocol !== 'https:' || url.searchParams.has('n')) return null;
+    if (parsed?.s) {
+      if (!resolvedSig) return null;
+      url.searchParams.set(parsed.sp, resolvedSig);
     }
-  }
-
-  return null;
+    return url.toString();
+  } catch { return null; }
 }
 
-/**
- * Patches the `n` parameter in a URL to defeat YouTube's throttling.
- * Must be called AFTER signature resolution.
- */
-function applyNParam(url: string, nFnBody: string): string {
+async function resolveWithCache(format: InnerTubeFormat, load: () => Promise<CipheredPlayerCache>): Promise<string | null> {
   try {
-    const u = new URL(url);
-    const n = u.searchParams.get('n');
-    if (!n) return url;
-    const solved = solveNParam(n, nFnBody);
-    u.searchParams.set('n', solved);
-    return u.toString();
-  } catch {
-    return url;
-  }
-}
-
-/**
- * Resolves a full format URL with signature deciphering and n-param solving.
- * Requires the player ID (from playerResponse.responseContext.serviceTrackingParams
- * or extracted from the base.js URL in the streaming data).
- *
- * @param format - Raw InnerTube format object
- * @param playerId - YouTube player JS ID (e.g. "vfl_xyz123")
- * @returns Resolved, playable HTTPS URL or null
- */
-export async function resolveFormatUrlWithDecipher(
-  format: InnerTubeFormat,
-  playerId: string,
-): Promise<string | null> {
-  try {
-    // A direct URL without an n challenge does not depend on player JS.
-    if (format.url?.startsWith('https://') && !new URL(format.url).searchParams.has('n')) {
-      return format.url;
+    const parsed = !format.url ? parseSignatureCipher(format.signatureCipher || format.cipher || '') : null;
+    const uri = format.url ?? parsed?.url;
+    if (!uri) return null;
+    const url = new URL(uri);
+    if (url.protocol !== 'https:') return null;
+    const n = url.searchParams.get('n');
+    if (!parsed?.s && !url.searchParams.has('n')) return uri;
+    const cache = await load();
+    if (parsed?.s) {
+      if (!cache.sigOps?.length) return null;
+      const signature = applySigOps(parsed.s, cache.sigOps);
+      if (!signature) return null;
+      url.searchParams.set(parsed.sp, signature);
     }
-    const { sigOps, nFnBody } = await loadPlayerCache(playerId);
-
-    let baseUrl: string | null = null;
-
-    if (format.url && format.url.startsWith('https://')) {
-      baseUrl = format.url;
-    } else {
-      const cipher = format.signatureCipher || format.cipher;
-      if (cipher) {
-        const parsed = parseSignatureCipher(cipher);
-        if (parsed && parsed.s) {
-          const resolvedSig = applySigOps(parsed.s, sigOps);
-          const separator = parsed.url.includes('?') ? '&' : '?';
-          baseUrl = `${parsed.url}${separator}${parsed.sp}=${encodeURIComponent(resolvedSig)}`;
-        } else if (parsed) {
-          baseUrl = parsed.url;
-        }
-      }
+    if (url.searchParams.has('n')) {
+      if (!n) return null;
+      url.searchParams.set('n', solveNParam(n, cache.nFnBody));
     }
-
-    if (!baseUrl) return null;
-
-    // Always apply n-param solving
-    return applyNParam(baseUrl, nFnBody);
-  } catch (err) {
-    console.warn('[Cipher] resolveFormatUrlWithDecipher failed:', err);
+    return url.toString();
+  } catch (error) {
+    console.warn('[Cipher] Format challenge resolution failed:', error);
     return null;
   }
+}
+
+export async function resolveFormatUrlWithDecipher(format: InnerTubeFormat, playerId: string): Promise<string | null> {
+  return resolveWithCache(format, () => loadPlayerCache(playerId));
 }
 
 /**
@@ -440,6 +411,8 @@ export async function extractPlaybackCandidates(
     return { formatId: format?.itag !== undefined ? String(format.itag) : undefined, mimeType, codecs, container, expiresAt };
   };
   let effectivePlayerId = playerId;
+  let playerLookup: Promise<string | null> | undefined;
+  let attemptCache: Promise<CipheredPlayerCache> | undefined;
   const candidates: VideoStreamCandidate[] = [];
   const decipher = async (fmt: InnerTubeFormat): Promise<string | null> => {
     if (fmt.url?.startsWith('https://')) {
@@ -450,9 +423,10 @@ export async function extractPlaybackCandidates(
       }
     }
     if (!fmt.url && !fmt.signatureCipher && !fmt.cipher) return null;
-    effectivePlayerId ||= await getOrFetchPlayerId();
+    effectivePlayerId ||= await (playerLookup ??= getOrFetchPlayerId());
     if (effectivePlayerId) {
-      return resolveFormatUrlWithDecipher(fmt, effectivePlayerId);
+      const id = effectivePlayerId;
+      return resolveWithCache(fmt, () => (attemptCache ??= loadPlayerCache(id)));
     }
     // Fallback: sync resolve (works only for unciphered direct URLs)
     return resolveFormatUrl(fmt);

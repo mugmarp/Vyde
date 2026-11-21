@@ -97,3 +97,45 @@ test('all unusable client responses fail rather than returning empty success', a
   await assert.rejects(player.extractPlayer('fixture1234'), /unplayable/);
   assert.equal(attempts.length, 6);
 });
+
+test('unresolved cipher signatures cannot become playable candidates', async () => {
+  const cipher = createLoader({}, async () => ({ ok: false, status: 503 }))(cipherPath);
+  const signatureCipher = new URLSearchParams({ url: 'https://example.com/media', s: 'encrypted', sp: 'sig' }).toString();
+  assert.equal(cipher.resolveFormatUrl({ signatureCipher }), null);
+  assert.equal((await cipher.extractPlaybackCandidates({ formats: [{ signatureCipher }] })).length, 0);
+});
+
+test('formats sharing a failed player script perform only one script fetch per resolution attempt', async () => {
+  let requests = 0;
+  const cipher = createLoader({}, async () => { requests++; return { ok: false, status: 503 }; })(cipherPath);
+  const signatureCipher = new URLSearchParams({ url: 'https://example.com/media', s: 'encrypted', sp: 'sig' }).toString();
+  await cipher.extractPlaybackCandidates({ formats: [{ signatureCipher }, { signatureCipher }] }, 'fixture');
+  assert.equal(requests, 1);
+});
+
+test('missing n transform is not silently accepted as successful deciphering', async () => {
+  const cipher = createLoader({}, async () => ({ ok: true, text: async () => signatureJs }))(cipherPath);
+  assert.equal(await cipher.resolveFormatUrlWithDecipher({ url: 'https://example.com/media?n=fixture' }, 'fixture'), null);
+});
+
+test('a supported n transform still resolves a challenged URL', async () => {
+  const js = signatureJs + 'x.get("n"))&&(b=NF(a));NF=function(a){a=a.split("");a.reverse();return a.join("")};';
+  const cipher = createLoader({}, async () => ({ ok: true, text: async () => js }))(cipherPath);
+  const uri = await cipher.resolveFormatUrlWithDecipher({ url: 'https://example.com/media?n=fixture' }, 'fixture');
+  assert.equal(new URL(uri).searchParams.get('n'), 'erutxif');
+});
+
+test('n evaluator failure cannot return the unchanged challenge as success', async () => {
+  const js = signatureJs + 'x.get("n"))&&(b=NF(a));NF=function(a){throw new Error("fixture")};';
+  const cipher = createLoader({}, async () => ({ ok: true, text: async () => js }))(cipherPath);
+  assert.equal(await cipher.resolveFormatUrlWithDecipher({ url: 'https://example.com/media?n=fixture' }, 'fixture'), null);
+});
+
+test('a failed script attempt is retryable during a later resolution', async () => {
+  let requests = 0;
+  const cipher = createLoader({}, async () => { requests++; return requests === 1 ? { ok: false, status: 503 } : { ok: true, text: async () => signatureJs }; })(cipherPath);
+  const signatureCipher = new URLSearchParams({ url: 'https://example.com/media', s: 'abcdef', sp: 'sig' }).toString();
+  assert.equal((await cipher.extractPlaybackCandidates({ formats: [{ signatureCipher }] }, 'fixture')).length, 0);
+  const result = await cipher.extractPlaybackCandidates({ formats: [{ signatureCipher }] }, 'fixture');
+  assert.equal(result.length, 1); assert.equal(new URL(result[0].uri).searchParams.get('sig'), 'edcba'); assert.equal(requests, 2);
+});
