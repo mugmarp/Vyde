@@ -106,6 +106,19 @@ async function getReadDatabase(collection: string): Promise<SQLiteDb | null> {
   return db;
 }
 
+export class LocalStorageWriteError extends Error {
+  constructor(public readonly operation: string, public readonly originalError?: unknown) {
+    super(`Local ${operation} could not be saved.`);
+    this.name = 'LocalStorageWriteError';
+  }
+}
+
+async function getWriteDatabase(operation: string): Promise<SQLiteDb | null> {
+  const db = await getDatabase();
+  if (!db && Platform.OS !== 'web') throw new LocalStorageWriteError(operation);
+  return db;
+}
+
 // ─── History Operations ───────────────────────────────────────────────────────
 
 export async function fetchHistory(): Promise<DbHistoryItem[]> {
@@ -129,7 +142,7 @@ export async function fetchHistory(): Promise<DbHistoryItem[]> {
 }
 
 export async function upsertHistory(item: DbHistoryItem): Promise<void> {
-  const db = await getDatabase();
+  const db = await getWriteDatabase('upsertHistory');
   if (!db) return;
   try {
     await db.runAsync(
@@ -138,17 +151,17 @@ export async function upsertHistory(item: DbHistoryItem): Promise<void> {
       [item.videoId, item.title, item.channel, item.thumbnail, item.progress, item.lastWatchedAt]
     );
   } catch (err) {
-    console.warn('[SQLite] upsertHistory failed:', err);
+    throw new LocalStorageWriteError('upsertHistory', err);
   }
 }
 
 export async function clearAllHistory(): Promise<void> {
-  const db = await getDatabase();
+  const db = await getWriteDatabase('clearAllHistory');
   if (!db) return;
   try {
     await db.runAsync(`DELETE FROM history`);
   } catch (err) {
-    console.warn('[SQLite] clearAllHistory failed:', err);
+    throw new LocalStorageWriteError('clearAllHistory', err);
   }
 }
 
@@ -166,7 +179,7 @@ export async function fetchLikedVideoIds(): Promise<string[]> {
 }
 
 export async function setVideoLiked(videoId: string, title = '', channel = '', thumbnail = '', liked: boolean): Promise<void> {
-  const db = await getDatabase();
+  const db = await getWriteDatabase('setVideoLiked');
   if (!db) return;
   try {
     if (liked) {
@@ -178,7 +191,7 @@ export async function setVideoLiked(videoId: string, title = '', channel = '', t
       await db.runAsync(`DELETE FROM likes WHERE videoId = ?`, [videoId]);
     }
   } catch (err) {
-    console.warn('[SQLite] setVideoLiked failed:', err);
+    throw new LocalStorageWriteError('setVideoLiked', err);
   }
 }
 
@@ -196,7 +209,7 @@ export async function fetchSavedVideoIds(): Promise<string[]> {
 }
 
 export async function setVideoSaved(videoId: string, title = '', channel = '', thumbnail = '', saved: boolean): Promise<void> {
-  const db = await getDatabase();
+  const db = await getWriteDatabase('setVideoSaved');
   if (!db) return;
   try {
     if (saved) {
@@ -208,7 +221,7 @@ export async function setVideoSaved(videoId: string, title = '', channel = '', t
       await db.runAsync(`DELETE FROM saves WHERE videoId = ?`, [videoId]);
     }
   } catch (err) {
-    console.warn('[SQLite] setVideoSaved failed:', err);
+    throw new LocalStorageWriteError('setVideoSaved', err);
   }
 }
 
@@ -240,7 +253,7 @@ export async function fetchAllPlaylists(): Promise<DbPlaylist[]> {
 }
 
 export async function createNewPlaylist(id: string, name: string, isPrivate = true): Promise<void> {
-  const db = await getDatabase();
+  const db = await getWriteDatabase('createNewPlaylist');
   if (!db) return;
   try {
     await db.runAsync(
@@ -248,23 +261,23 @@ export async function createNewPlaylist(id: string, name: string, isPrivate = tr
       [id, name, isPrivate ? 1 : 0, Date.now()]
     );
   } catch (err) {
-    console.warn('[SQLite] createNewPlaylist failed:', err);
+    throw new LocalStorageWriteError('createNewPlaylist', err);
   }
 }
 
 export async function removePlaylist(id: string): Promise<void> {
-  const db = await getDatabase();
+  const db = await getWriteDatabase('removePlaylist');
   if (!db) return;
   try {
-    await db.runAsync(`DELETE FROM playlist_items WHERE playlistId = ?`, [id]);
+    // Foreign-key cascade makes deletion one atomic SQL statement.
     await db.runAsync(`DELETE FROM playlists WHERE id = ?`, [id]);
   } catch (err) {
-    console.warn('[SQLite] removePlaylist failed:', err);
+    throw new LocalStorageWriteError('removePlaylist', err);
   }
 }
 
 export async function addVideoToPlaylistDb(playlistId: string, videoId: string): Promise<void> {
-  const db = await getDatabase();
+  const db = await getWriteDatabase('addVideoToPlaylistDb');
   if (!db) return;
   try {
     await db.runAsync(
@@ -272,12 +285,12 @@ export async function addVideoToPlaylistDb(playlistId: string, videoId: string):
       [playlistId, videoId, Date.now()]
     );
   } catch (err) {
-    console.warn('[SQLite] addVideoToPlaylistDb failed:', err);
+    throw new LocalStorageWriteError('addVideoToPlaylistDb', err);
   }
 }
 
 export async function removeVideoFromPlaylistDb(playlistId: string, videoId: string): Promise<void> {
-  const db = await getDatabase();
+  const db = await getWriteDatabase('removeVideoFromPlaylistDb');
   if (!db) return;
   try {
     await db.runAsync(
@@ -285,7 +298,7 @@ export async function removeVideoFromPlaylistDb(playlistId: string, videoId: str
       [playlistId, videoId]
     );
   } catch (err) {
-    console.warn('[SQLite] removeVideoFromPlaylistDb failed:', err);
+    throw new LocalStorageWriteError('removeVideoFromPlaylistDb', err);
   }
 }
 
@@ -308,7 +321,7 @@ export async function fetchAllSubscriptions(): Promise<DbSubscription[]> {
 }
 
 export async function setSubscription(channelId: string, name: string, thumbnail = '', subscribed: boolean): Promise<void> {
-  const db = await getDatabase();
+  const db = await getWriteDatabase('setSubscription');
   if (!db) return;
   try {
     if (subscribed) {
@@ -320,25 +333,27 @@ export async function setSubscription(channelId: string, name: string, thumbnail
       await db.runAsync(`DELETE FROM subscriptions WHERE channelId = ?`, [channelId]);
     }
   } catch (err) {
-    console.warn('[SQLite] setSubscription failed:', err);
+    throw new LocalStorageWriteError('setSubscription', err);
   }
 }
 
 // ─── Reset All Data ───────────────────────────────────────────────────────────
 
 export async function resetAllLocalData(): Promise<void> {
-  const db = await getDatabase();
+  const db = await getWriteDatabase('resetAllLocalData');
   if (!db) return;
   try {
-    await db.execAsync(`
+    await db.withExclusiveTransactionAsync(async (transaction: SQLiteDb) => {
+      await transaction.execAsync(`
       DELETE FROM history;
       DELETE FROM likes;
       DELETE FROM saves;
       DELETE FROM playlist_items;
       DELETE FROM playlists;
       DELETE FROM subscriptions;
-    `);
+      `);
+    });
   } catch (err) {
-    console.warn('[SQLite] resetAllLocalData failed:', err);
+    throw new LocalStorageWriteError('resetAllLocalData', err);
   }
 }
