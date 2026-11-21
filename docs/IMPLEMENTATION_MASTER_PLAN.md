@@ -1,6 +1,6 @@
 # Vyde implementation master plan
 
-Updated: 2026-11-20 (Africa/Kampala)
+Updated: 2026-11-21 (Africa/Kampala)
 
 Status: implementation started. Phase 00 build work and phase 01 containment are in progress; see [IMPLEMENTATION_PROGRESS.md](IMPLEMENTATION_PROGRESS.md) for commits, checks and remaining gates. No native engine or license change has been selected.
 
@@ -102,7 +102,7 @@ React screens issue commands and subscribe to state. They do not own downloads, 
 | 00 | Reproducible build and truthful baseline | Current audit | In progress; local checks pass, APK/device gate pending |
 | 01 | Containment of reproduced correctness defects | 00 | Implemented regression fixes; native/restart acceptance pending |
 | 02 | Extractor/player/processing/auth feasibility decisions | 00; can investigate during 01 | In progress; [source evaluation](decisions/ADR-001_MEDIA_ENGINE_EVALUATION.md), device comparison pending |
-| 03 | Reliable local data and job foundations | 01 | Planned |
+| 03 | Reliable local data and job foundations | 01 | In progress; versioned transactional migration foundation, broader repositories/jobs pending |
 | 04 | Maintainable media resolver and transport support | 02 | Planned |
 | 05 | Complete Android playback, live and captions | 03/04 | Planned |
 | 06 | Durable download transfer engine | 03/04 | Planned |

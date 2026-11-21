@@ -1,6 +1,6 @@
 # Vyde implementation progress
 
-Updated: 2026-11-20 (Africa/Kampala)
+Updated: 2026-11-21 (Africa/Kampala)
 
 Execution contract: [implementation master plan](IMPLEMENTATION_MASTER_PLAN.md). Original evidence: [systematic re-audit](SYSTEMATIC_REAUDIT_2026-11-20.md).
 
@@ -85,3 +85,15 @@ Local targeted verification: 30 production-module regression tests pass, includi
 Baseline CI run [44778627111](https://github.com/mugmarp/Vyde/actions/runs/44778627111), at commit `0d55147`, passed verification and web/Android exports while APK compilation was still running when batch 2 was prepared. That run does not verify newer source changes. Main workflow concurrency now preserves running APK builds across subsequent pushes; PR checks remain cancellable. New Android jobs have a 45-minute bound.
 
 No native runtime/engine dependency or application-license change has been made. S21 runtime comparisons remain required.
+
+## Batch 3 — Successful CI APK and transactional migrations
+
+Both run [44778627111](https://github.com/mugmarp/Vyde/actions/runs/44778627111) and the newer run [44780300420](https://github.com/mugmarp/Vyde/actions/runs/44780300420) completed successfully, including native APK compilation and artifact upload. The newer run verifies commit `f7417fd`, with 30 regressions, typechecks and web/Android exports passing. See [the artifact/device baseline](ANDROID_DEVICE_TEST_BASELINE.md). Device testing was explicitly deferred by the owner on 2026-11-21; no runtime success rate is claimed.
+
+Phase 03 now introduces schema version 1 and a SQLite migration journal. Schema setup, legacy import, journal entry and schema version commit in one initialization transaction. Existing SQLite history/playlists take precedence over stale legacy snapshots. A failed import rolls back; compatibility-marker failure after commit does not cause re-import. Higher unknown schema versions are rejected without downgrading. Legacy collection data remains available in AsyncStorage.
+
+Local targeted verification: 38 tests pass, including eight new cases executing production migration SQL against actual SQLite through a native-boundary adapter. Cases cover rollback/retry, ordered import, existing records, old migration flags, malformed input, downgrade protection, compatibility-marker failure and foreign-key cascades. These tests do not replace an Android migration test.
+
+The new workflow also verifies APK package/signature and emits `apk-provenance.json`. CI build/typecheck/provenance verification for batch 3 remains pending its new run; only the earlier source revision is covered by the successful runs above. No local build/export/Gradle compilation was performed for this batch.
+
+Broader phase 03 work remains: canonical metadata storage, entry/job identities, repository error/rollback handling, backup/restore and recovery UX. Versioned initialization is a foundation, not completion of the entire persistence phase.
