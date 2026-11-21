@@ -5,6 +5,7 @@
  */
 
 import { Platform } from 'react-native';
+import { RequestOptions, runBoundedRequest } from './request';
 import {
   INNERTUBE_BASE_URL,
   CLIENT_CONFIGS,
@@ -36,38 +37,57 @@ export class InnerTubeCascadeError extends Error {
 
 // ─── visitorData cache ────────────────────────────────────────────────────────
 
-let cachedVisitorData: string | null = null;
-let visitorDataFetchedAt = 0;
-const VISITOR_DATA_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
+interface VisitorSession {
+  value?: string;
+  fetchedAt: number;
+  attemptedAt: number;
+  generation: number;
+  pending: boolean;
+}
+const visitorSessions = new Map<string, VisitorSession>();
+const VISITOR_DATA_TTL_MS = 6 * 60 * 60 * 1000;
+const VISITOR_RETRY_MS = 30000;
 
-async function acquireVisitorData(): Promise<string | null> {
+function visitorSession(config: InnerTubeClientConfig, region: string): VisitorSession {
+  const key = `${config.clientName}:${config.clientVersion}:${region}`;
+  let session = visitorSessions.get(key);
+  if (!session) {
+    session = { fetchedAt: 0, attemptedAt: 0, generation: 0, pending: false };
+    visitorSessions.set(key, session);
+  }
+  return session;
+}
+
+function learnVisitor(session: VisitorSession, response: any) {
+  const value = response?.responseContext?.visitorData;
+  if (typeof value === 'string' && value) {
+    session.value = value;
+    session.fetchedAt = Date.now();
+    ++session.generation;
+  }
+}
+
+// Optional warmup never blocks discovery. One bounded request per identity is
+// shared; a failure gets a cooldown rather than delaying every category click.
+function warmVisitorData(config: InnerTubeClientConfig, region: string, session: VisitorSession): void {
   const now = Date.now();
-  if (cachedVisitorData && now - visitorDataFetchedAt < VISITOR_DATA_TTL_MS) {
-    return cachedVisitorData;
-  }
-  try {
-    const url = `${INNERTUBE_BASE_URL}/guide`;
-    const payload = { context: buildContext(CLIENT_CONFIGS.IOS) };
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: buildHeaders(CLIENT_CONFIGS.IOS),
-      body: JSON.stringify(payload),
+  if (session.pending || (session.value && now - session.fetchedAt < VISITOR_DATA_TTL_MS)
+      || (session.attemptedAt && now - session.attemptedAt < VISITOR_RETRY_MS)) return;
+  session.pending = true;
+  session.attemptedAt = now;
+  const generation = session.generation;
+  void runBoundedRequest(async signal => {
+    const response = await fetch(`${INNERTUBE_BASE_URL}/guide`, {
+      method: 'POST', signal, headers: buildHeaders(config),
+      body: JSON.stringify({ context: buildContext(config, undefined, 'en', region) }),
     });
-    if (res.ok) {
-      const data = await res.json() as any;
-      const vd: string | undefined =
-        data?.responseContext?.visitorData ||
-        data?.header?.pageHeaderRenderer?.visitorData;
-      if (vd) {
-        cachedVisitorData = vd;
-        visitorDataFetchedAt = now;
-        return vd;
-      }
+    if (response.ok) {
+      const data = await response.json();
+      if (!signal.aborted && generation === session.generation) learnVisitor(session, data);
     }
-  } catch (err) {
-    console.warn('[InnerTube] visitorData acquisition failed:', err);
-  }
-  return null;
+  }, { timeoutMs: 4000 }).catch(() => {
+    // Warmup is optional. The primary request reports its own failure/timing.
+  }).finally(() => { session.pending = false; });
 }
 
 // ─── InnerTubeClient ──────────────────────────────────────────────────────────
@@ -93,60 +113,51 @@ export class InnerTubeClient {
     endpoint: string,
     body: Record<string, unknown>,
     clientConfig: InnerTubeClientConfig = CLIENT_CONFIGS.IOS,
+    options: RequestOptions = {},
   ): Promise<T> {
-    const url = `${INNERTUBE_BASE_URL}/${endpoint.replace(/^\//, '')}`;
-
-    // Acquire visitorData (non-blocking — uses cached value after first fetch)
-    const visitorData = await acquireVisitorData();
-
-    const context = buildContext(clientConfig, visitorData ?? undefined);
-    const payload = {
-      ...body,
-      context,
-    };
-    const headers = buildHeaders(clientConfig);
-
-    // Try direct client-side fetch (works natively on Android & iOS without CORS)
+    const startedAt = Date.now();
+    let outcome = 'error';
+    let httpStatus: number | undefined;
     try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(payload),
-      });
-
-      if (response.ok) {
-        return (await response.json()) as T;
-      }
-
-      const errorText = await response.text();
-      console.warn(
-        `[InnerTube] Direct ${endpoint} failed (${response.status}):`,
-        errorText.slice(0, 200),
-      );
-      throw new InnerTubeRequestError(endpoint, clientConfig.clientName, response.status);
-    } catch (directErr) {
-      console.warn(`[InnerTube] Direct ${endpoint} threw:`, directErr);
-
-      // On web browser, CORS may block direct request → try server proxy
-      if (Platform.OS === 'web' && this.apiServerUrl) {
+      const result = await runBoundedRequest(async signal => {
+        const region = options.region ?? 'US';
+        const session = visitorSession(clientConfig, region);
+        warmVisitorData(clientConfig, region, session);
+        const visitorData = Date.now() - session.fetchedAt < VISITOR_DATA_TTL_MS ? session.value : undefined;
+        const payload = { ...body, context: buildContext(clientConfig, visitorData, 'en', region) };
         try {
-          const proxyUrl = `${this.apiServerUrl}/api/innertube/${endpoint.replace(/^\//, '')}`;
-          const proxyRes = await fetch(proxyUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ body: payload, clientName: clientConfig.clientName }),
+          const response = await fetch(`${INNERTUBE_BASE_URL}/${endpoint.replace(/^\//, '')}`, {
+            method: 'POST', headers: buildHeaders(clientConfig), body: JSON.stringify(payload), signal,
           });
-          if (proxyRes.ok) {
-            return (await proxyRes.json()) as T;
+          httpStatus = response.status;
+          if (!response.ok) throw new InnerTubeRequestError(endpoint, clientConfig.clientName, response.status);
+          const data = await response.json();
+          if (!signal.aborted) learnVisitor(session, data);
+          return data as T;
+        } catch (directError) {
+          if (signal.aborted) throw directError;
+          if (Platform.OS === 'web' && this.apiServerUrl) {
+            try {
+              const proxy = await fetch(`${this.apiServerUrl}/api/innertube/${endpoint.replace(/^\//, '')}`, {
+                method: 'POST', signal, headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ body: payload, clientName: clientConfig.clientName }),
+              });
+              if (proxy.ok) return await proxy.json() as T;
+            } catch { /* Keep the original direct failure. */ }
           }
-        } catch (proxyErr) {
-          console.warn(`[InnerTube] Proxy ${endpoint} failed:`, proxyErr);
+          throw directError;
         }
-      }
-
-      throw directErr;
+      }, options);
+      outcome = 'success';
+      return result;
+    } catch (error) {
+      outcome = error instanceof Error ? error.name : 'error';
+      throw error;
+    } finally {
+      // No query, video ID, visitor data, tokens or response bodies are logged.
+      console.log('[InnerTube] request', { endpoint, client: clientConfig.clientName,
+        elapsedMs: Date.now() - startedAt, httpStatus, outcome });
     }
-
   }
 
   /**

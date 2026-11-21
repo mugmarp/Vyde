@@ -31,7 +31,7 @@ function createLoader(stubs = {}, fetch = async () => { throw new Error('Unexpec
       return load(resolved);
     }
     vm.runInNewContext(`(function(require, module, exports) { ${code}\n})`, {
-      URL, URLSearchParams, fetch, setTimeout, clearTimeout,
+      URL, URLSearchParams, AbortController, AbortSignal, fetch, setTimeout, clearTimeout,
       console: { warn() {}, log() {} }, process: { env },
     }, { filename })(requireMock, module, module.exports);
     return module.exports;
