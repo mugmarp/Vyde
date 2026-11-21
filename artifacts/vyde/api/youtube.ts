@@ -76,6 +76,8 @@ export interface LiveComment {
 
 /** Comments response including total count. */
 export interface LiveComments {
+  nextPage?: string | null;
+  disabled?: boolean;
   commentCount: number | null;
   items: LiveComment[];
 }
@@ -114,6 +116,21 @@ async function apiProxyGet<T>(path: string): Promise<T> {
     throw new Error(body.message ?? 'Proxy request failed.');
   }
   return body;
+}
+
+// Native direct extraction is sufficient configuration. An absent or failing
+// optional proxy must never replace the original provider failure.
+async function withOptionalProxy<T>(direct: () => Promise<T>, path: string): Promise<T> {
+  try {
+    return await direct();
+  } catch (originalError) {
+    if (!getApiBase()) throw originalError;
+    try {
+      return await apiProxyGet<T>(path);
+    } catch {
+      throw originalError;
+    }
+  }
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -164,18 +181,9 @@ export async function searchYouTube(query: string): Promise<{ items: LiveVideo[]
     throw new Error('Search must be at least 2 characters.');
   }
 
-  try {
-    const items = await extractSearch(normalized);
-    if (items && items.length > 0) {
-      return { items, provider: 'innertube-direct' };
-    }
-  } catch (err) {
-    console.warn('[YouTube API] Direct InnerTube search failed, attempting fallback...', err);
-  }
-
-  return apiProxyGet<{ items: LiveVideo[]; provider: string }>(
-    `/search?q=${encodeURIComponent(normalized)}`,
-  );
+  return withOptionalProxy(async () => ({
+    items: await extractSearch(normalized), provider: 'innertube-direct',
+  }), `/search?q=${encodeURIComponent(normalized)}`);
 }
 
 /**
@@ -197,19 +205,10 @@ export async function fetchYouTubeVideo(id: string): Promise<LiveVideoDetails> {
     throw new Error('Invalid YouTube video ID.');
   }
 
-  try {
+  return withOptionalProxy(async () => {
     const details = await extractPlayer(id);
-    return {
-      ...details,
-      nativePlaybackCandidates: details.nativePlaybackCandidates,
-      provider: 'innertube-direct',
-    };
-  } catch (err) {
-    console.warn('[YouTube API] Direct InnerTube player failed, attempting proxy fallback...', err);
-  }
-
-  // Fallback to proxy
-  return apiProxyGet<LiveVideoDetails>(`/videos/${encodeURIComponent(id)}`);
+    return { ...details, provider: 'innertube-direct' };
+  }, `/videos/${encodeURIComponent(id)}`);
 }
 
 /**
@@ -220,19 +219,13 @@ export async function fetchYouTubeVideo(id: string): Promise<LiveVideoDetails> {
  *
  * @param id - YouTube video ID
  */
-export async function fetchYouTubeComments(id: string): Promise<LiveComments> {
+export async function fetchYouTubeComments(id: string, continuation?: string): Promise<LiveComments> {
   if (!/^[\w-]{6,20}$/.test(id)) {
     throw new Error('Invalid YouTube video ID.');
   }
 
-  try {
-    const result = await extractComments(id);
-    if (result && result.items.length > 0) {
-      return result;
-    }
-  } catch (err) {
-    console.warn('[YouTube API] Direct InnerTube comments failed, attempting proxy fallback...', err);
-  }
-
-  return apiProxyGet<LiveComments>(`/comments/${encodeURIComponent(id)}`);
+  // Continuation tokens belong to their originating direct session; do not
+  // send them to another provider with potentially different session state.
+  if (continuation) return extractComments(id, continuation);
+  return withOptionalProxy(() => extractComments(id), `/comments/${encodeURIComponent(id)}`);
 }

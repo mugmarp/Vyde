@@ -13,6 +13,27 @@ import {
   buildContext,
 } from './constants';
 
+export class InnerTubeRequestError extends Error {
+  constructor(public readonly endpoint: string, public readonly client: string, public readonly httpStatus: number) {
+    super(`YouTube ${endpoint} request failed (HTTP ${httpStatus}, client ${client}).`);
+    this.name = 'InnerTubeRequestError';
+  }
+}
+
+export interface InnerTubeAttemptFailure {
+  client: string;
+  message: string;
+  httpStatus?: number;
+  playabilityStatus?: string;
+}
+
+export class InnerTubeCascadeError extends Error {
+  constructor(public readonly endpoint: string, public readonly attempts: InnerTubeAttemptFailure[]) {
+    super(attempts[attempts.length - 1]?.message ?? `All YouTube ${endpoint} requests failed.`);
+    this.name = 'InnerTubeCascadeError';
+  }
+}
+
 // ─── visitorData cache ────────────────────────────────────────────────────────
 
 let cachedVisitorData: string | null = null;
@@ -102,6 +123,7 @@ export class InnerTubeClient {
         `[InnerTube] Direct ${endpoint} failed (${response.status}):`,
         errorText.slice(0, 200),
       );
+      throw new InnerTubeRequestError(endpoint, clientConfig.clientName, response.status);
     } catch (directErr) {
       console.warn(`[InnerTube] Direct ${endpoint} threw:`, directErr);
 
@@ -125,7 +147,6 @@ export class InnerTubeClient {
       throw directErr;
     }
 
-    throw new Error(`InnerTube request to ${endpoint} failed.`);
   }
 
   /**
@@ -143,7 +164,7 @@ export class InnerTubeClient {
     ],
     validator?: (data: T) => boolean | Promise<boolean>,
   ): Promise<{ data: T; successfulClient: InnerTubeClientConfig }> {
-    let lastError: unknown = null;
+    const attempts: InnerTubeAttemptFailure[] = [];
 
     for (const config of clientOrder) {
       try {
@@ -156,15 +177,23 @@ export class InnerTubeClient {
           console.warn(
             `[InnerTube] Cascade client ${config.clientName} returned unplayable data for ${endpoint}, falling back...`
           );
-          lastError = new Error(`Client ${config.clientName} returned unplayable response.`);
+          const status = (data as any)?.playabilityStatus;
+          const providerStatus = typeof status?.status === 'string' ? status.status : undefined;
+          const reason = typeof status?.reason === 'string' ? status.reason : 'No usable stream formats were resolved.';
+          attempts.push({ client: config.clientName, playabilityStatus: providerStatus,
+            message: `Client ${config.clientName} returned unplayable data${providerStatus ? ` (${providerStatus})` : ''}: ${reason}` });
+        } else {
+          attempts.push({ client: config.clientName, message: `Client ${config.clientName} returned no data.` });
         }
       } catch (err) {
-        lastError = err;
-        // Proceed to next client in cascade
+        attempts.push({ client: config.clientName,
+          message: err instanceof Error ? err.message : `Client ${config.clientName} request failed.`,
+          ...(err instanceof InnerTubeRequestError ? { httpStatus: err.httpStatus } : {}),
+        });
       }
     }
 
-    throw lastError || new Error(`All client configurations failed for ${endpoint}.`);
+    throw new InnerTubeCascadeError(endpoint, attempts);
   }
 }
 

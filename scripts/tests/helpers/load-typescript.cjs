@@ -7,7 +7,7 @@ const appRoot = path.resolve(__dirname, '../../../artifacts/vyde');
 
 // Execute production modules with only their platform/network boundaries mocked.
 // Each loader has an isolated module cache, so tests cannot share task/DB state.
-function createLoader(stubs = {}, fetch = async () => { throw new Error('Unexpected network request'); }) {
+function createLoader(stubs = {}, fetch = async () => { throw new Error('Unexpected network request'); }, env = {}) {
   const cache = new Map();
   function load(filename) {
     if (cache.has(filename)) return cache.get(filename).exports;
@@ -32,7 +32,7 @@ function createLoader(stubs = {}, fetch = async () => { throw new Error('Unexpec
     }
     vm.runInNewContext(`(function(require, module, exports) { ${code}\n})`, {
       URL, URLSearchParams, fetch, setTimeout, clearTimeout,
-      console: { warn() {}, log() {} }, process: { env: {} },
+      console: { warn() {}, log() {} }, process: { env },
     }, { filename })(requireMock, module, module.exports);
     return module.exports;
   }
