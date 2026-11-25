@@ -107,6 +107,53 @@ test('all unusable client responses fail rather than returning empty success', a
   assert.equal(attempts.length, 6);
 });
 
+function capabilityFixture(combined = true, first = 'separate') {
+  const attempts = [];
+  const partial = first === 'audio' ? [{ url: 'https://example.com/a', mimeType: 'audio/mp4' }]
+    : [{ url: 'https://example.com/v', mimeType: 'video/mp4' }, { url: 'https://example.com/a', mimeType: 'audio/mp4' }];
+  const fetch = async (url, options) => {
+    let data = {};
+    if (url.endsWith('/player')) {
+      const client = JSON.parse(options.body).context.client.clientName;
+      attempts.push(client);
+      data = client === 'IOS' || (combined && client === 'ANDROID')
+        ? { playabilityStatus: { status: 'OK' }, videoDetails: { title: client }, streamingData: client === 'IOS'
+          ? { adaptiveFormats: partial }
+          : { formats: [{ url: 'https://example.com/combined', mimeType: 'video/mp4' }] } }
+        : { playabilityStatus: { status: 'UNPLAYABLE', reason: 'Fixture rejection' } };
+    }
+    return { ok: true, status: 200, json: async () => data, text: async () => '' };
+  };
+  const load = createLoader({ 'react-native': { Platform: { OS: 'android' } } }, fetch);
+  return { player: load('services/innertube/playerExtractor.ts'), constants: load('services/innertube/constants.ts'), attempts };
+}
+
+test('separate video/audio from the first client cannot hide a later combined source', async () => {
+  const { player, attempts, constants } = capabilityFixture();
+  const details = await player.extractPlayer('fixture1234');
+  assert.deepEqual(attempts, ['IOS', 'ANDROID']);
+  assert.equal(details.title, 'ANDROID');
+  const combined = details.nativePlaybackCandidates.find(c => c.contentType === 'progressive');
+  assert.equal(combined.uri, 'https://example.com/combined');
+  assert.equal(combined.headers['User-Agent'], constants.CLIENT_CONFIGS.ANDROID.userAgent);
+});
+
+test('an audio-only first response also continues looking for full video playback', async () => {
+  const { player, attempts } = capabilityFixture(true, 'audio');
+  const details = await player.extractPlayer('fixture1234');
+  assert.deepEqual(attempts, ['IOS', 'ANDROID']);
+  assert.ok(details.nativePlaybackCandidates.some(c => c.contentType === 'progressive'));
+});
+
+test('partial sources remain available for downloads after every full-playback fallback is tried', async () => {
+  const { player, attempts, constants } = capabilityFixture(false);
+  const details = await player.extractPlayer('fixture1234');
+  assert.equal(attempts.length, 6);
+  assert.equal(details.title, 'IOS');
+  assert.deepEqual(Array.from(details.nativePlaybackCandidates, c => c.contentType), ['adaptive-video', 'audio']);
+  assert.equal(details.nativePlaybackCandidates[0].headers['User-Agent'], constants.CLIENT_CONFIGS.IOS.userAgent);
+});
+
 test('unresolved cipher signatures cannot become playable candidates', async () => {
   const cipher = createLoader({}, async () => ({ ok: false, status: 503 }))(cipherPath);
   const signatureCipher = new URLSearchParams({ url: 'https://example.com/media', s: 'encrypted', sp: 'sig' }).toString();

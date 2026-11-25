@@ -10,7 +10,7 @@
  */
 
 import { CLIENT_CONFIGS } from './constants';
-import { defaultInnerTube } from './innertubeClient';
+import { defaultInnerTube, InnerTubeCascadeError } from './innertubeClient';
 import {
   extractPlaybackCandidates,
   extractPlayerId,
@@ -34,42 +34,65 @@ export async function extractPlayer(videoId: string): Promise<NormalizedVideoDet
   }
 
   let candidates: VideoStreamCandidate[] = [];
-  // Accept a client only after its formats normalize to usable candidates.
-  const { data: response } = await defaultInnerTube.postWithCascade<InnerTubePlayerResponse>(
-    'player',
-    () => ({
-      videoId,
-      playbackContext: {
-        contentPlaybackContext: {
-          html5Preference: 'HTML5_PREF_WANTS',
+  const partial: { response?: InnerTubePlayerResponse; candidates: VideoStreamCandidate[]; score: number } = {
+    candidates: [], score: 0,
+  };
+  let response: InnerTubePlayerResponse;
+  try {
+    const result = await defaultInnerTube.postWithCascade<InnerTubePlayerResponse>(
+      'player',
+      () => ({
+        videoId,
+        playbackContext: {
+          contentPlaybackContext: {
+            html5Preference: 'HTML5_PREF_WANTS',
+          },
         },
+      }),
+      [
+        CLIENT_CONFIGS.IOS,         // → HLS manifests & adaptive formats (iOS 18)
+        CLIENT_CONFIGS.ANDROID,     // → Progressive MP4s (360p) & adaptive formats (Android 14)
+        CLIENT_CONFIGS.VISIONOS,    // → VisionOS Apple HLS master playlist (.m3u8)
+        CLIENT_CONFIGS.ANDROID_VR,  // → Android VR / Oculus direct stream formats
+        CLIENT_CONFIGS.TV_EMBEDDED, // → Living room relaxed enforcement
+        CLIENT_CONFIGS.WEB,         // → Web client fallback
+      ],
+      // The current native player consumes one source. Keep trying until it can
+      // receive both sound and picture, rather than stopping on separate tracks.
+      async (res, client) => {
+        const status = res?.playabilityStatus?.status;
+        const streaming = res?.streamingData;
+        const hasStreams = Boolean(
+          streaming?.hlsManifestUrl ||
+          (Array.isArray(streaming?.formats) && streaming.formats.length > 0) ||
+          (Array.isArray(streaming?.adaptiveFormats) && streaming.adaptiveFormats.length > 0)
+        );
+        if (status !== 'OK' || !hasStreams) return false;
+        const resolved = await extractPlaybackCandidates(
+          streaming,
+          extractPlayerId(res as Record<string, unknown>),
+        );
+        const sources = resolved.map(source => ({
+          ...source, headers: { 'User-Agent': client.userAgent, ...source.headers },
+        }));
+        if (sources.some(source => source.contentType === 'hls' || source.contentType === 'progressive')) {
+          candidates = sources;
+          return true;
+        }
+        const score = (sources.some(source => source.contentType === 'adaptive-video') ? 2 : 0)
+          + (sources.some(source => source.contentType === 'audio') ? 1 : 0);
+        if (score > partial.score) Object.assign(partial, { response: res, candidates: sources, score });
+        return false;
       },
-    }),
-    [
-      CLIENT_CONFIGS.IOS,         // → HLS manifests & adaptive formats (iOS 18)
-      CLIENT_CONFIGS.ANDROID,     // → Progressive MP4s (360p) & adaptive formats (Android 14)
-      CLIENT_CONFIGS.VISIONOS,    // → VisionOS Apple HLS master playlist (.m3u8)
-      CLIENT_CONFIGS.ANDROID_VR,  // → Android VR / Oculus direct stream formats
-      CLIENT_CONFIGS.TV_EMBEDDED, // → Living room relaxed enforcement
-      CLIENT_CONFIGS.WEB,         // → Web client fallback
-    ],
-    // Validator: ensure response is playable and has stream candidates before accepting
-    async (res) => {
-      const status = res?.playabilityStatus?.status;
-      const streaming = res?.streamingData;
-      const hasStreams = Boolean(
-        streaming?.hlsManifestUrl ||
-        (Array.isArray(streaming?.formats) && streaming.formats.length > 0) ||
-        (Array.isArray(streaming?.adaptiveFormats) && streaming.adaptiveFormats.length > 0)
-      );
-      if (status !== 'OK' || !hasStreams) return false;
-      candidates = await extractPlaybackCandidates(
-        streaming,
-        extractPlayerId(res as Record<string, unknown>),
-      );
-      return candidates.length > 0;
-    },
-  );
+    );
+    response = result.data;
+  } catch (error) {
+    // Preserve real partial capabilities when every full-playback attempt fails.
+    // They remain separate tracks; this does not claim to mux or play them together.
+    if (!(error instanceof InnerTubeCascadeError) || !partial.response) throw error;
+    response = partial.response;
+    candidates = partial.candidates;
+  }
 
   const status = response.playabilityStatus?.status;
   if (status && status !== 'OK') {
