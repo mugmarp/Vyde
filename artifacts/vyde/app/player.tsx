@@ -107,6 +107,10 @@ export default function PlayerScreen() {
   const [seekRightKey, setSeekRightKey] = useState(0);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [posterVisible, setPosterVisible] = useState(true);
+  const playbackIntent = useRef({ videoId, shouldPlay: false, position: 0, restorePosition: false });
+  if (playbackIntent.current.videoId !== videoId) {
+    playbackIntent.current = { videoId, shouldPlay: false, position: 0, restorePosition: false };
+  }
   const lastProgressSavedAt = useRef(0);
   const panStartX = useRef(0);
   const panStartY = useRef(0);
@@ -154,7 +158,6 @@ export default function PlayerScreen() {
     })
   ).current;
   const lastTapRef = useRef({ time: 0, x: 0 });
-  const pendingSeekSecs = useRef<number | null>(null);
   const historyRef = useRef(history);
   historyRef.current = history;
   const isLiked = !!videoId && likedVideoIds.includes(videoId);
@@ -297,8 +300,33 @@ export default function PlayerScreen() {
   };
 
   useEffect(() => {
+    let sourceFailed = false;
+    const isCurrentPlayer = () => gestureSnapshot.current.player === nativePlayer
+      && playbackIntent.current.videoId === videoId;
+    const restoreIntent = () => {
+      if (!isCurrentPlayer() || sourceFailed || !playbackSource) return;
+      const intent = playbackIntent.current;
+      if (intent.restorePosition) {
+        const position = nativePlayer.duration > 0 && Number.isFinite(nativePlayer.duration)
+          ? Math.min(intent.position, Math.max(0, nativePlayer.duration - 0.1)) : intent.position;
+        try {
+          nativePlayer.currentTime = position;
+          intent.restorePosition = false;
+        } catch {
+          console.warn('[Player] Position restoration failed; playback can still be retried.');
+        }
+      }
+      if (intent.shouldPlay && !nativePlayer.playing) nativePlayer.play();
+      else if (!intent.shouldPlay && nativePlayer.playing) nativePlayer.pause();
+    };
     const statusSubscription = nativePlayer.addListener('statusChange', event => {
+      if (!isCurrentPlayer() || sourceFailed) return;
+      if (event.status === 'readyToPlay') restoreIntent();
       if (event.status === 'error') {
+        sourceFailed = true;
+        const time = nativePlayer.currentTime;
+        if (Number.isFinite(time) && time > 0) playbackIntent.current.position = time;
+        playbackIntent.current.restorePosition = true;
         if (candidateIndex + 1 < allCandidates.length) {
           setCandidateIndex(index => index + 1);
           setPlaybackError(null);
@@ -310,9 +338,13 @@ export default function PlayerScreen() {
       }
     });
     const playingSubscription = nativePlayer.addListener('playingChange', event => {
-      setPlaying(event.isPlaying);
+      if (isCurrentPlayer()) setPlaying(event.isPlaying);
     });
     const timeSubscription = nativePlayer.addListener('timeUpdate', event => {
+      if (!isCurrentPlayer() || sourceFailed) return;
+      if (Number.isFinite(event.currentTime) && event.currentTime >= 0) {
+        playbackIntent.current.position = event.currentTime;
+      }
       if (nativePlayer.duration > 0 && Number.isFinite(nativePlayer.duration)) {
         setProgress(Math.max(0, Math.min(1, event.currentTime / nativePlayer.duration)));
         if (videoId && event.currentTime - lastProgressSavedAt.current >= 10 && liveVideo) {
@@ -325,16 +357,17 @@ export default function PlayerScreen() {
         }
       }
     });
+    if (nativePlayer.status === 'readyToPlay') restoreIntent();
     return () => {
       statusSubscription.remove();
       playingSubscription.remove();
       timeSubscription.remove();
     };
-  }, [nativePlayer, candidateIndex, allCandidates.length, videoId, liveVideo, recordHistory]);
+  }, [nativePlayer, playbackSource?.uri, candidateIndex, allCandidates.length, videoId, liveVideo, recordHistory]);
 
   useEffect(() => {
     setProgress(0);
-    setPlaying(false);
+    setPlaying(nativePlayer.playing);
     setPlaybackError(null);
     setPosterVisible(true);
   }, [playbackSource?.uri]);
@@ -392,12 +425,19 @@ export default function PlayerScreen() {
 
   const togglePlayback = () => {
     if (showNativeVideo) {
-      if (nativePlayer.playing) nativePlayer.pause();
-      else nativePlayer.play();
+      if (nativePlayer.playing || playbackIntent.current.shouldPlay) {
+        playbackIntent.current.shouldPlay = false;
+        nativePlayer.pause();
+      } else {
+        playbackIntent.current.shouldPlay = true;
+        if (nativePlayer.status === 'readyToPlay') nativePlayer.play();
+      }
       resetControlsTimer();
       return;
     }
     if (detailsLoading) return;
+    playbackIntent.current.shouldPlay = true;
+    playbackIntent.current.restorePosition = true;
     setCandidateIndex(0);
     setPlaybackError(null);
     setDetailsRetryKey(key => key + 1);
@@ -570,12 +610,8 @@ export default function PlayerScreen() {
               nativeControls={false}
               contentFit={contentFit}
               onFirstFrameRender={() => {
+                if (gestureSnapshot.current.player !== nativePlayer || playbackIntent.current.videoId !== videoId) return;
                 setPosterVisible(false);
-                if (pendingSeekSecs.current !== null && nativePlayer.duration > 0) {
-                  const target = pendingSeekSecs.current;
-                  pendingSeekSecs.current = null;
-                  nativePlayer.currentTime = target;
-                }
                 if (speed !== 1.0) {
                   nativePlayer.playbackRate = speed;
                 }
@@ -670,7 +706,8 @@ export default function PlayerScreen() {
               <TouchableOpacity hitSlop={20} onPress={() => { seekBy(-10); setSeekLeftKey(k => k + 1); }}>
                 <Ionicons name="play-back" size={34} color="rgba(255,255,255,0.9)" />
               </TouchableOpacity>
-              <TouchableOpacity hitSlop={16} onPress={togglePlayback} style={ps.playBtn}>
+              <TouchableOpacity hitSlop={16} onPress={togglePlayback} style={ps.playBtn}
+                accessibilityRole="button" accessibilityLabel={playing ? 'Pause playback' : 'Play playback'}>
                 <Ionicons name={playing ? 'pause' : 'play'} size={38} color="#fff" />
               </TouchableOpacity>
               <TouchableOpacity hitSlop={20} onPress={() => { seekBy(10); setSeekRightKey(k => k + 1); }}>
@@ -1006,10 +1043,13 @@ export default function PlayerScreen() {
                   <TouchableOpacity
                     key={`${candidate.uri}-${idx}`}
                     style={[ps.qualityOption, isSelected && ps.qualityOptionActive]}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Select quality ${candidate.qualityLabel}`}
                     onPress={() => {
-                      if (nativePlayer.duration > 0 && nativePlayer.currentTime > 0) {
-                        pendingSeekSecs.current = nativePlayer.currentTime;
+                      if (Number.isFinite(nativePlayer.currentTime) && nativePlayer.currentTime >= 0) {
+                        playbackIntent.current.position = nativePlayer.currentTime;
                       }
+                      playbackIntent.current.restorePosition = true;
                       setCandidateIndex(idx);
                       setQualityPickerOpen(false);
                       void Haptics.selectionAsync();
