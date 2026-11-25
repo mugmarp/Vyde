@@ -150,3 +150,7 @@ The findings above describe source `063bbdb`; the following records subsequent c
 | C19 | Below-threshold probe now exits with failure, requires HLS/progressive candidates and explicitly reports native playback unmeasured. CI remains advisory; production harness/native acceptance remain open. |
 
 C04, C06, C08–C10 and C13–C18 remain open. In particular, this batch does not deliver durable Android jobs, independent multi-format asset ownership, complete migration/reconciliation, account synchronization, native HD processing or the full media acceptance matrix. See [progress batch 13](IMPLEMENTATION_PROGRESS.md#batch-13--first-critical-audit-remediation).
+
+### Follow-up on 25 November
+
+Batch 13's CI later failed mobile compilation, so its changes were not in the owner's last successful release. `4ddfe38` fixes the signature-parameter type. C09 is now partially addressed by `77390a1`: source replacement/quality changes retain position and play/pause intent, reset on video changes, and reject stale or repeated native failures. Physical playback and restart/history restoration remain separate gates. `eb2758c` fixes premature acceptance of partial streams when a later client can provide full playback; C16's paired HD and SABR/media capabilities remain open. See the [new media audit and evidence](MEDIA_REAUDIT_2026-11-25.md).
