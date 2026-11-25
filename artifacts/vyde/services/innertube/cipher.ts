@@ -244,7 +244,7 @@ function solveNParam(n: string, nFnBody: string | null): string {
  */
 export function parseSignatureCipher(
   cipherStr: string,
-): { url: string; s?: string; sp?: string } | null {
+): { url: string; s?: string; sp: string } | null {
   try {
     const params = new URLSearchParams(cipherStr);
     const url = params.get('url');

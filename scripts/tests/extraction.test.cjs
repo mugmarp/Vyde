@@ -5,6 +5,15 @@ const { createLoader } = require('./helpers/load-typescript.cjs');
 const cipherPath = 'services/innertube/cipher.ts';
 const signatureJs = 'var ZZ={Rv:function(a){a.reverse()},Sp:function(a,b){a.splice(0,b)}};SS=function(a){a=a.split("");ZZ.Rv(a);ZZ.Sp(a,1);return a.join("")};';
 
+test('cipher signature parameter defaults to sig when sp is absent', async () => {
+  const cipher = createLoader({}, async () => ({ ok: true, text: async () => signatureJs }))(cipherPath);
+  const signatureCipher = new URLSearchParams({ url: 'https://example.com/v', s: 'abcdef' }).toString();
+  assert.equal(cipher.parseSignatureCipher(signatureCipher).sp, 'sig');
+  assert.equal(new URL(cipher.resolveFormatUrl({ signatureCipher }, 'resolved')).searchParams.get('sig'), 'resolved');
+  const uri = await cipher.resolveFormatUrlWithDecipher({ signatureCipher }, 'fixture');
+  assert.equal(new URL(uri).searchParams.get('sig'), 'edcba');
+});
+
 test('R01: direct media does not depend on player-script availability', async () => {
   let requests = 0;
   const cipher = createLoader({}, async () => { requests++; throw new Error('offline'); })(cipherPath);
