@@ -226,3 +226,11 @@ The follow-up [media re-audit](MEDIA_REAUDIT_2026-11-25.md) checked the owner's 
 `77390a1` retains requested play/pause state and position across native source failure and quality changes, waits for readiness, honors pause before readiness, resets intent for another video, and prevents duplicate errors or stale native callbacks from restarting/skipping sources. Full-suite verification: **167 cases pass**. No local app compilation, export or typecheck ran. The new Actions run remains the compilation/packaging gate, followed by native acceptance.
 
 These are focused corrections, not completion of media phase 04 or download phase 06. SABR/paired adaptive playback, native processing, durable download ownership/recovery, correct audio/container export and maintained-engine/license evaluation remain open. Current LibreTube reports are mixed; its SABR architecture is a reference, not evidence that every video/network works.
+
+## Batch 15 — Download capabilities, actual formats and independent file ownership
+
+Batch 14 is now confirmed packaged: [run 45631942416](https://github.com/mugmarp/Vyde/actions/runs/45631942416), source `4543946`, passed every job and uploaded debug and signed-release APKs. Its release does not include batch 15. The temporary full-transfer probe output was unavailable on resumption and is not counted as successful verification.
+
+The [download remediation report](DOWNLOAD_REMEDIATION_2026-11-28.md) records the next changes. Resolution distinguishes playback from downloadable MP4/audio requirements, so an HLS playback response no longer prevents searching other clients for a compatible file. The player refreshes missing/expired sources without changing playback, rejects stale and duplicate requests, and carries actual filenames/MIME through completion and export. Audio and video from one video are retained as separate file records with independent progress and deletion. Legacy filenames remain supported; failed removals retain their records.
+
+Verification: **187 regression cases pass**, including screen-level lookup/queue tests and storage/format boundaries. Builds and typechecks remain CI-only. Native playback, complete downloads, export and restart acceptance remain unverified; durable jobs, same-container quality identities, muxing/conversion and HLS/SABR downloading remain open.
