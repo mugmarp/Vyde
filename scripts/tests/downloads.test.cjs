@@ -40,6 +40,13 @@ function downloadFixture() {
   return { manager, files, transfers, completions, errors, start, native };
 }
 
+test('actual audio container extensions do not become M4A', () => {
+  const f = downloadFixture();
+  assert.equal(f.manager.suggestFileName('fixture', 'webm'), 'fixture.webm');
+  assert.equal(f.manager.suggestFileName('fixture', 'm4a'), 'fixture.m4a');
+  assert.equal(f.manager.suggestFileName('fixture', 'audio'), 'fixture.m4a');
+});
+
 test('R04: existing file is not trusted; only a verified fresh transfer completes', async () => {
   const f = downloadFixture();
   f.files.set(f.manager.localUri('fixture.mp4'), 3);

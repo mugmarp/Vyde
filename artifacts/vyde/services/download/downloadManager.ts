@@ -59,6 +59,10 @@ interface ActiveDownload {
 // Session ownership only. Persistent job/recovery state is phase 06 work.
 const activeDownloads = new Map<string, ActiveDownload>();
 
+export function isActive(fileName: string): boolean {
+  return activeDownloads.has(fileName);
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 async function ensureDir(): Promise<void> {
@@ -324,5 +328,6 @@ export async function totalStorageMB(): Promise<number> {
  */
 export function suggestFileName(videoId: string, contentType: string): string {
   if (contentType === 'audio') return `${videoId}.m4a`;
+  if (['m4a', 'webm', 'mp3', 'ogg'].includes(contentType)) return `${videoId}.${contentType}`;
   return `${videoId}.mp4`;
 }

@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useMemo, useState, useCall
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import * as DownloadManager from '@/services/download/downloadManager';
+import { storedDownloadFileName } from '@/domain/download';
 import * as Db from '@/services/db';
 import * as GoogleAuth from '@/services/auth';
 import { createOrderedWriter } from '@/services/storage/orderedWriter';
@@ -36,6 +37,8 @@ export interface OfflineDownloadItem {
   duration?: string | null;
   uri?: string;
   fileSize?: string;
+  fileName?: string;
+  mimeType?: string;
   format: 'mp4' | 'audio';
   status: 'queued' | 'downloading' | 'completed' | 'failed';
   progress: number;
@@ -59,8 +62,8 @@ interface AppContextType {
   removeVideoFromPlaylist: (playlistId: string, videoId: string) => void;
   deletePlaylist: (playlistId: string) => void;
   addDownload: (item: Omit<OfflineDownloadItem, 'downloadedAt'>) => void;
-  removeDownload: (videoId: string) => Promise<boolean>;
-  updateDownloadProgress: (videoId: string, progress: number, status?: OfflineDownloadItem['status']) => void;
+  removeDownload: (videoId: string, fileName?: string) => Promise<boolean>;
+  updateDownloadProgress: (videoId: string, progress: number, status?: OfflineDownloadItem['status'], fileName?: string) => void;
   subscriptions: Db.DbSubscription[];
   isSubscribed: (channelId: string) => boolean;
   toggleSubscription: (channelId: string, name: string, thumbnail?: string) => void;
@@ -145,6 +148,10 @@ function readDownloads(value: string | null): OfflineDownloadItem[] {
     if (!item || typeof item !== 'object' || Array.isArray(item)) throw new Error('Stored record is invalid.');
     const dl = item as Record<string, unknown>;
     if (typeof dl.videoId !== 'string' || typeof dl.title !== 'string') throw new Error('Stored download is invalid.');
+    if (dl.fileName !== undefined && (typeof dl.fileName !== 'string'
+      || !/^[\w.-]+$/.test(dl.fileName) || dl.fileName === '.' || dl.fileName === '..')) {
+      throw new Error('Stored download filename is invalid.');
+    }
     return [{
       videoId: dl.videoId,
       title: dl.title,
@@ -153,6 +160,8 @@ function readDownloads(value: string | null): OfflineDownloadItem[] {
       duration: typeof dl.duration === 'string' ? dl.duration : null,
       uri: typeof dl.uri === 'string' ? dl.uri : undefined,
       fileSize: typeof dl.fileSize === 'string' ? dl.fileSize : undefined,
+      fileName: typeof dl.fileName === 'string' ? dl.fileName : undefined,
+      mimeType: typeof dl.mimeType === 'string' ? dl.mimeType : undefined,
       format: dl.format === 'audio' ? 'audio' : 'mp4',
       status: typeof dl.status === 'string' ? (dl.status as OfflineDownloadItem['status']) : 'completed',
       progress: typeof dl.progress === 'number' ? dl.progress : 1,
@@ -377,27 +386,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const addDownload = useCallback((item: Omit<OfflineDownloadItem, 'downloadedAt'>) => {
     setDownloads(prev => [
       { ...item, downloadedAt: Date.now() },
-      ...prev.filter(d => d.videoId !== item.videoId),
+      ...prev.filter(d => storedDownloadFileName(d) !== storedDownloadFileName(item)),
     ]);
   }, []);
 
-  const removeDownload = useCallback(async (videoId: string): Promise<boolean> => {
-    const item = downloads.find(d => d.videoId === videoId);
-    if (!item) return true;
-    const fileName = DownloadManager.suggestFileName(videoId, item.format === 'audio' ? 'audio' : 'mp4');
-    try {
-      await DownloadManager.deleteDownload(fileName);
-    } catch {
-      setStorageError('The download could not be removed from this device. Please retry.');
-      return false;
+  const removeDownload = useCallback(async (videoId: string, fileName?: string): Promise<boolean> => {
+    const targets = downloads.filter(d => d.videoId === videoId && (!fileName || storedDownloadFileName(d) === fileName));
+    const removed = new Set<string>();
+    for (const item of targets) {
+      const name = storedDownloadFileName(item);
+      try {
+        await DownloadManager.deleteDownload(name);
+        removed.add(name);
+      } catch {
+        setStorageError('The download could not be removed from this device. Please retry.');
+      }
     }
-    setDownloads(previous => previous.filter(d => d.videoId !== videoId));
-    return true;
+    setDownloads(previous => previous.filter(d => d.videoId !== videoId || !removed.has(storedDownloadFileName(d))));
+    return targets.every(item => removed.has(storedDownloadFileName(item)));
   }, [downloads]);
 
-  const updateDownloadProgress = useCallback((videoId: string, progress: number, status?: OfflineDownloadItem['status']) => {
+  const updateDownloadProgress = useCallback((videoId: string, progress: number, status?: OfflineDownloadItem['status'], fileName?: string) => {
     setDownloads(prev => prev.map(d => {
-      if (d.videoId !== videoId) return d;
+      if (d.videoId !== videoId || (fileName && storedDownloadFileName(d) !== fileName)) return d;
       return {
         ...d,
         progress,
@@ -438,7 +449,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       await Db.resetAllLocalData();
       const retainedDownloads: OfflineDownloadItem[] = [];
       for (const item of downloads) {
-        const fileName = DownloadManager.suggestFileName(item.videoId, item.format === 'audio' ? 'audio' : 'mp4');
+        const fileName = storedDownloadFileName(item);
         try { await DownloadManager.deleteDownload(fileName); }
         catch {
           retainedDownloads.push(item);

@@ -11,6 +11,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LocalVideoMetadata, Playlist, useAppContext } from '@/context/AppContext';
 import * as Sharing from 'expo-sharing';
 import * as DownloadManager from '@/services/download/downloadManager';
+import { storedDownloadFileName } from '@/domain/download';
 
 const C = {
   bg: '#050507', elevated: '#0C0C12', hover: '#161620',
@@ -299,7 +300,7 @@ export default function LibraryScreen() {
                             text: 'Delete all',
                             style: 'destructive',
                             onPress: async () => {
-                              await Promise.all(downloads.map(d => removeDownload(d.videoId)));
+                              await Promise.all(downloads.map(d => removeDownload(d.videoId, storedDownloadFileName(d))));
                               setStorageUsedMB(await DownloadManager.totalStorageMB());
                             },
                           },
@@ -318,7 +319,7 @@ export default function LibraryScreen() {
               const isDownloading = item.status === 'downloading' || item.status === 'queued';
               const isFailed = item.status === 'failed';
               return (
-                <View key={item.videoId} style={s.videoRow}>
+                <View key={storedDownloadFileName(item)} style={s.videoRow}>
                   <TouchableOpacity
                     style={s.videoMain}
                     activeOpacity={0.8}
@@ -351,7 +352,7 @@ export default function LibraryScreen() {
                       <Text style={s.videoMeta} numberOfLines={1}>
                         {item.channel}
                         {item.fileSize ? ` · ${item.fileSize}` : ''}
-                        {' · '}{item.format.toUpperCase()}
+                        {' · '}{storedDownloadFileName(item).split('.').pop()?.toUpperCase()}
                       </Text>
                       {isDownloading && (
                         <View style={s.progressBarWrap}>
@@ -374,7 +375,7 @@ export default function LibraryScreen() {
                           const available = await Sharing.isAvailableAsync();
                           if (available) {
                             await Sharing.shareAsync(item.uri!, {
-                              mimeType: item.format === 'audio' ? 'audio/m4a' : 'video/mp4',
+                              mimeType: item.mimeType ?? (item.format === 'audio' ? 'audio/mp4' : 'video/mp4'),
                               dialogTitle: `Export ${item.title}`,
                             });
                           } else {
@@ -395,7 +396,7 @@ export default function LibraryScreen() {
                           'Delete download',
                           `Remove "${item.title}" from your device?`,
                           [
-                            { text: 'Delete', style: 'destructive', onPress: () => removeDownload(item.videoId) },
+                            { text: 'Delete', style: 'destructive', onPress: () => removeDownload(item.videoId, storedDownloadFileName(item)) },
                             { text: 'Cancel', style: 'cancel' },
                           ],
                         );
