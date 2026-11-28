@@ -11,6 +11,7 @@
 
 import { CLIENT_CONFIGS } from './constants';
 import { defaultInnerTube, InnerTubeCascadeError } from './innertubeClient';
+import { ResolutionPurpose, selectDownloadSource } from '../../domain/download';
 import {
   extractPlaybackCandidates,
   extractPlayerId,
@@ -28,7 +29,7 @@ function youtubeThumbnail(id: string): string {
   return `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
 }
 
-export async function extractPlayer(videoId: string): Promise<NormalizedVideoDetails> {
+export async function extractPlayer(videoId: string, purpose: ResolutionPurpose = 'playback'): Promise<NormalizedVideoDetails> {
   if (!/^[\w-]{6,20}$/.test(videoId)) {
     throw new Error('Invalid YouTube video ID format.');
   }
@@ -75,11 +76,15 @@ export async function extractPlayer(videoId: string): Promise<NormalizedVideoDet
         const sources = resolved.map(source => ({
           ...source, headers: { 'User-Agent': client.userAgent, ...source.headers },
         }));
-        if (sources.some(source => source.contentType === 'hls' || source.contentType === 'progressive')) {
+        const satisfiesPurpose = purpose === 'playback'
+          ? sources.some(source => source.contentType === 'hls' || source.contentType === 'progressive')
+          : !!selectDownloadSource(sources, purpose === 'download-audio' ? 'audio' : 'mp4');
+        if (satisfiesPurpose) {
           candidates = sources;
           return true;
         }
-        const score = (sources.some(source => source.contentType === 'adaptive-video') ? 2 : 0)
+        const score = (sources.some(source => source.contentType === 'hls' || source.contentType === 'progressive') ? 4 : 0)
+          + (sources.some(source => source.contentType === 'adaptive-video') ? 2 : 0)
           + (sources.some(source => source.contentType === 'audio') ? 1 : 0);
         if (score > partial.score) Object.assign(partial, { response: res, candidates: sources, score });
         return false;

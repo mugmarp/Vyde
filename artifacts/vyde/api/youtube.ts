@@ -231,13 +231,15 @@ export async function searchYouTube(query: string, options: DiscoveryOptions = {
  *
  * @param id - YouTube video ID (11 characters, e.g. "dQw4w9WgXcQ")
  */
-export async function fetchYouTubeVideo(id: string): Promise<LiveVideoDetails> {
+export async function fetchYouTubeVideo(
+  id: string, purpose: import('../domain/download').ResolutionPurpose = 'playback',
+): Promise<LiveVideoDetails> {
   if (!/^[\w-]{6,20}$/.test(id)) {
     throw new Error('Invalid YouTube video ID.');
   }
 
   return withOptionalProxy(async () => {
-    const details = await extractPlayer(id);
+    const details = await extractPlayer(id, purpose);
     return { ...details, provider: 'innertube-direct' };
   }, `/videos/${encodeURIComponent(id)}`);
 }

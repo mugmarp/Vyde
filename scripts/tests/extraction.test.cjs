@@ -154,6 +154,39 @@ test('partial sources remain available for downloads after every full-playback f
   assert.equal(details.nativePlaybackCandidates[0].headers['User-Agent'], constants.CLIENT_CONFIGS.IOS.userAgent);
 });
 
+function downloadPurposeFixture() {
+  const attempts = [];
+  const fetch = async (url, options) => {
+    let data = {};
+    if (url.endsWith('/player')) {
+      const client = JSON.parse(options.body).context.client.clientName;
+      attempts.push(client);
+      data = { playabilityStatus: { status: 'OK' }, videoDetails: { title: client }, streamingData: client === 'IOS'
+        ? { hlsManifestUrl: 'https://example.com/master.m3u8' }
+        : { formats: [{ url: 'https://example.com/video.mp4', mimeType: 'video/mp4' }],
+          adaptiveFormats: [{ url: 'https://example.com/audio.webm', mimeType: 'audio/webm; codecs="opus"' }] } };
+    }
+    return { ok: true, status: 200, json: async () => data, text: async () => '' };
+  };
+  return { player: createLoader({ 'react-native': { Platform: { OS: 'android' } } }, fetch)('services/innertube/playerExtractor.ts'), attempts };
+}
+
+for (const purpose of ['download-video', 'download-audio']) {
+  test(`${purpose} continues past an HLS-only playback response`, async () => {
+    const { player, attempts } = downloadPurposeFixture();
+    const details = await player.extractPlayer('fixture1234', purpose);
+    assert.deepEqual(attempts, ['IOS', 'ANDROID']);
+    assert.equal(details.title, 'ANDROID');
+  });
+}
+
+test('normal playback still accepts HLS without waiting for file-download alternatives', async () => {
+  const { player, attempts } = downloadPurposeFixture();
+  const details = await player.extractPlayer('fixture1234');
+  assert.deepEqual(attempts, ['IOS']);
+  assert.equal(details.nativePlaybackCandidates[0].contentType, 'hls');
+});
+
 test('unresolved cipher signatures cannot become playable candidates', async () => {
   const cipher = createLoader({}, async () => ({ ok: false, status: 503 }))(cipherPath);
   const signatureCipher = new URLSearchParams({ url: 'https://example.com/media', s: 'encrypted', sp: 'sig' }).toString();
