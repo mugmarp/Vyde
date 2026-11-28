@@ -13,6 +13,7 @@ import { useAppContext } from '@/context/AppContext';
 import { LiveComment, NativePlaybackSource, fetchYouTubeComments, fetchYouTubeVideo } from '@/api/youtube';
 import * as DownloadManager from '@/services/download/downloadManager';
 import * as Haptics from 'expo-haptics';
+import { selectDownloadSource, storedDownloadFileName } from '@/domain/download';
 
 const C = {
   bg: '#050507', elevated: '#0C0C12', hover: '#161620',
@@ -87,6 +88,15 @@ export default function PlayerScreen() {
   const [speedPickerOpen, setSpeedPickerOpen] = useState(false);
   const [qualityPickerOpen, setQualityPickerOpen] = useState(false);
   const [downloadPickerOpen, setDownloadPickerOpen] = useState(false);
+  const [resolvingDownload, setResolvingDownload] = useState(false);
+  const downloadLookup = useRef(0);
+  const downloadBusy = useRef(false);
+  useEffect(() => {
+    ++downloadLookup.current;
+    downloadBusy.current = false;
+    setResolvingDownload(false);
+    return () => { ++downloadLookup.current; };
+  }, [videoId]);
   const [brightness, setBrightness] = useState(1.0);
   const [volume, setVolume] = useState(1.0);
   const [contentFit, setContentFit] = useState<'contain' | 'cover'>('contain');
@@ -471,7 +481,8 @@ export default function PlayerScreen() {
         'Offline Media',
         `"${displayTitle}" is stored locally on this device.`,
         [
-          { text: 'Delete download', style: 'destructive', onPress: () => removeDownload(videoId) },
+          { text: 'Download another format', onPress: () => setDownloadPickerOpen(true) },
+          { text: 'Delete saved formats', style: 'destructive', onPress: () => removeDownload(videoId) },
           { text: 'Keep', style: 'cancel' },
         ],
       );
@@ -483,92 +494,70 @@ export default function PlayerScreen() {
 
   const triggerDownload = async (targetFormat: 'mp4' | 'audio') => {
     setDownloadPickerOpen(false);
-    if (!videoId) return;
+    if (!videoId || downloadBusy.current) return;
     if (detailsLoading || !liveVideo) {
       Alert.alert('Video is not ready to download', detailsLoading
         ? 'Video information is still loading. Please try again when it finishes.'
         : detailsError ?? 'Retry loading video details before choosing a download format.');
       return;
     }
-
-    let candidate = null;
-    if (targetFormat === 'audio') {
-      candidate =
-        liveVideo?.nativePlaybackCandidates?.find(c => c.contentType === 'audio') ||
-        playbackCandidates.find(c => c.contentType === 'progressive');
-    } else {
-      candidate =
-        liveVideo?.nativePlaybackCandidates?.find(c => c.contentType === 'progressive') ||
-        playbackCandidates.find(c => c.contentType === 'progressive') ||
-        liveVideo?.nativePlaybackCandidates?.find(c => c.contentType === 'adaptive-video');
-    }
-
-    if (!candidate?.uri || candidate.contentType === 'hls') {
-      Alert.alert(
-        'Download source could not be resolved',
-        targetFormat === 'mp4'
-          ? 'No compatible downloadable source was resolved for this format. Retry video details and try again.'
-          : 'No downloadable audio stream was found for this video.',
-      );
-      return;
-    }
-
-    const fileName = DownloadManager.suggestFileName(videoId, targetFormat);
-
-    addDownload({
-      videoId,
-      title: displayTitle,
-      channel: displayChannel,
-      thumbnail: displayThumbnail,
-      duration: liveVideo?.duration,
-      format: targetFormat,
-      status: 'queued',
-      progress: 0,
-      uri: undefined,
-      fileSize: candidate.contentLength
-        ? `${(parseInt(candidate.contentLength, 10) / (1024 * 1024)).toFixed(1)} MB`
-        : undefined,
-    });
-
+    const generation = downloadLookup.current;
+    downloadBusy.current = true;
+    setResolvingDownload(true);
+    let queued = false;
+    let destination: string | undefined;
+    let failureReported = false;
+    const reportFailure = (message: string) => {
+      if (failureReported) return;
+      failureReported = true;
+      if (queued) updateDownloadProgress(videoId, 0, 'failed', destination);
+      if (downloadLookup.current === generation) {
+        Alert.alert(queued ? 'Download failed' : 'Download source could not be resolved', message);
+      }
+    };
     try {
+      let selection = selectDownloadSource(liveVideo.nativePlaybackCandidates, targetFormat);
+      if (!selection) {
+        // Resolve for the requested output without replacing an active playback source.
+        const refreshed = await fetchYouTubeVideo(videoId, targetFormat === 'audio' ? 'download-audio' : 'download-video');
+        if (downloadLookup.current !== generation) return;
+        selection = selectDownloadSource(refreshed.nativePlaybackCandidates, targetFormat);
+      }
+      if (!selection) throw new Error(`No compatible ${targetFormat === 'audio' ? 'audio file' : 'MP4 with audio'} source was resolved. Please retry.`);
+      const { source: candidate, extension, mimeType } = selection;
+      const fileName = DownloadManager.suggestFileName(videoId, extension);
+      destination = fileName;
+      if (DownloadManager.isActive(fileName)) throw new Error('This download is already in progress.');
+      if (downloads.some(item => item.status === 'completed' && storedDownloadFileName(item) === fileName)) {
+        throw new Error('This format is already saved. Open it from your Library.');
+      }
+      const size = Number(candidate.contentLength);
+      const expectedBytes = Number.isSafeInteger(size) && size > 0 ? size : undefined;
+      const item = {
+        videoId, title: displayTitle, channel: displayChannel, thumbnail: displayThumbnail,
+        duration: liveVideo.duration, format: targetFormat, fileName, mimeType,
+        fileSize: expectedBytes ? `${(expectedBytes / (1024 * 1024)).toFixed(1)} MB` : undefined,
+      };
+      addDownload({ ...item, status: 'queued', progress: 0 });
+      queued = true;
       await DownloadManager.start({
-        videoId,
-        uri: candidate.uri,
-        fileName,
-        expectedBytes: candidate.contentLength ? Number(candidate.contentLength) : undefined,
-        headers: candidate.headers,
-        onProgress: (progress) => {
-          updateDownloadProgress(videoId, progress, 'downloading');
+        videoId, uri: candidate.uri, fileName, expectedBytes, headers: candidate.headers,
+        onProgress: progress => updateDownloadProgress(videoId, progress, 'downloading', fileName),
+        onComplete: localUri => {
+          addDownload({ ...item, status: 'completed', progress: 1, uri: localUri });
+          if (downloadLookup.current === generation) {
+            Alert.alert('Download complete', `"${displayTitle}" (${extension.toUpperCase()}) is now available in your Library.`);
+          }
         },
-        onComplete: (localUri) => {
-          updateDownloadProgress(videoId, 1, 'completed');
-          addDownload({
-            videoId,
-            title: displayTitle,
-            channel: displayChannel,
-            thumbnail: displayThumbnail,
-            duration: liveVideo?.duration,
-            format: targetFormat,
-            status: 'completed',
-            progress: 1,
-            uri: localUri,
-            fileSize: candidate.contentLength
-              ? `${(parseInt(candidate.contentLength, 10) / (1024 * 1024)).toFixed(1)} MB`
-              : undefined,
-          });
-          Alert.alert(
-            'Download complete',
-            `"${displayTitle}" (${targetFormat.toUpperCase()}) is now available in your Library.`,
-          );
-        },
-        onError: (err) => {
-          updateDownloadProgress(videoId, 0, 'failed');
-          Alert.alert('Download failed', err);
-        },
+        onError: reportFailure,
       });
-    } catch (err) {
-      updateDownloadProgress(videoId, 0, 'failed');
-      Alert.alert('Download failed', err instanceof Error ? err.message : String(err));
+    } catch (error) {
+      reportFailure(error instanceof Error ? error.message : String(error));
+    } finally {
+      if (downloadLookup.current === generation) {
+        downloadBusy.current = false;
+        setResolvingDownload(false);
+      }
     }
   };
 
@@ -809,9 +798,10 @@ export default function PlayerScreen() {
             { icon: 'share-social-outline', label: 'Share', color: C.muted, onPress: () => void Share.share({ message: watchUrl }) },
             { icon: isSaved ? 'bookmark' : 'bookmark-outline', label: 'Save', color: isSaved ? C.accent : C.muted, onPress: () => videoId && toggleSave(videoId) },
             { icon: 'list-outline', label: 'Playlist', color: C.muted, onPress: () => { setPlaylistFeedback(null); setPlaylistPickerOpen(true); } },
-            { icon: isDownloaded ? 'checkmark-circle' : 'cloud-download-outline', label: isDownloaded ? 'Downloaded' : 'Download', color: isDownloaded ? C.accent : C.muted, onPress: handleDownload, disabled: false },
+            { icon: isDownloaded ? 'checkmark-circle' : 'cloud-download-outline', label: resolvingDownload ? 'Finding source…' : isDownloaded ? 'Downloaded' : 'Download', color: isDownloaded ? C.accent : C.muted, onPress: handleDownload, disabled: resolvingDownload },
           ].map(action => (
-            <TouchableOpacity key={action.label} style={ps.actionBtn} onPress={action.onPress} disabled={action.disabled} activeOpacity={0.7}>
+            <TouchableOpacity key={action.label} style={ps.actionBtn} onPress={action.onPress} disabled={action.disabled} activeOpacity={0.7}
+              accessibilityRole="button" accessibilityLabel={action.label}>
               <View style={ps.actionIconWrap}>
                 <Ionicons name={action.icon as any} size={20} color={action.color} />
               </View>
@@ -953,6 +943,7 @@ export default function PlayerScreen() {
               <TouchableOpacity
                 style={ps.downloadOption}
                 onPress={() => triggerDownload('mp4')}
+                accessibilityRole="button" accessibilityLabel="Download MP4"
               >
                 <View style={[ps.downloadOptionIcon, { backgroundColor: 'rgba(232, 74, 39, 0.15)' }]}>
                   <Ionicons name="videocam" size={22} color={C.accent} />
@@ -967,13 +958,14 @@ export default function PlayerScreen() {
               <TouchableOpacity
                 style={ps.downloadOption}
                 onPress={() => triggerDownload('audio')}
+                accessibilityRole="button" accessibilityLabel="Download audio"
               >
                 <View style={[ps.downloadOptionIcon, { backgroundColor: 'rgba(76, 175, 80, 0.15)' }]}>
                   <Ionicons name="musical-notes" size={22} color="#4CAF50" />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={ps.downloadOptionTitle}>Audio Only (M4A / AAC)</Text>
-                  <Text style={ps.downloadOptionSub}>Save space & listen in the background</Text>
+                  <Text style={ps.downloadOptionTitle}>Audio Only</Text>
+                  <Text style={ps.downloadOptionSub}>Save an audio file for offline listening</Text>
                 </View>
                 <Ionicons name="cloud-download-outline" size={20} color={C.muted} />
               </TouchableOpacity>

@@ -2,6 +2,10 @@ const { createLoader, deferred, settle } = require("./load-typescript.cjs");
 
 // Execute the real screen and its effects, replacing only React/native boundaries.
 function playerFixture(t) {
+  const transfers = [],
+    records = [],
+    alerts = [];
+  let active = false;
   const state = [],
     refs = [],
     effects = [],
@@ -60,7 +64,7 @@ function playerFixture(t) {
       Platform: { OS: "android" },
       Animated: { Value: class {} },
       PanResponder: { create: () => ({ panHandlers: {} }) },
-      Alert: { alert: noop },
+      Alert: { alert: (...args) => alerts.push(args) },
       Linking: { openURL: noop },
       Share: { share: noop },
       TouchableOpacity: "Press",
@@ -84,17 +88,28 @@ function playerFixture(t) {
         downloads: [],
         isSubscribed: () => false,
         recordHistory: noop,
+        addDownload: (item) => records.push(item),
+        updateDownloadProgress: noop,
       }),
     },
     "@/api/youtube": {
-      fetchYouTubeVideo: () => {
+      fetchYouTubeVideo: (videoId, purpose) => {
         const d = deferred();
+        d.videoId = videoId;
+        d.purpose = purpose;
         requests.push(d);
         return d.promise;
       },
       fetchYouTubeComments: async () => ({ items: [], commentCount: 0 }),
     },
-    "@/services/download/downloadManager": {},
+    "@/services/download/downloadManager": {
+      suggestFileName: (id, ext) => `${id}.${ext}`,
+      isActive: () => active,
+      start: async (options) => {
+        transfers.push(options);
+        return {};
+      },
+    },
     "expo-haptics": { selectionAsync: async () => {} },
     "expo-video": {
       VideoView: "Video",
@@ -178,23 +193,42 @@ function playerFixture(t) {
     render,
     flush,
     players,
+    transfers,
+    records,
+    alerts,
     requests,
+    setActive(value) {
+      active = value;
+    },
+    beginDownload(format) {
+      find(
+        (n) => n.type === "Press" && n.props.accessibilityLabel === "Download",
+        tree,
+      ).props.onPress();
+      render();
+      const operation = find(
+        (n) =>
+          n.props?.accessibilityLabel ===
+          (format === "audio" ? "Download audio" : "Download MP4"),
+        tree,
+      ).props.onPress();
+      render();
+      return operation;
+    },
     route,
     find: (test) => find(test, tree),
     get current() {
       return player;
     },
     async resolve(sources) {
-      requests
-        .at(-1)
-        .resolve({
-          id: route.id,
-          title: "Example",
-          channel: "",
-          thumbnail: "",
-          nativePlaybackCandidates: sources,
-          relatedVideos: [],
-        });
+      requests.at(-1).resolve({
+        id: route.id,
+        title: "Example",
+        channel: "",
+        thumbnail: "",
+        nativePlaybackCandidates: sources,
+        relatedVideos: [],
+      });
       await flush();
     },
     pressPlay() {
